@@ -1,3 +1,4 @@
+import base64
 import streamlit as st
 from supabase import create_client, Client
 
@@ -5,17 +6,25 @@ from supabase import create_client, Client
 # 1. PAGE CONFIG & GLOBAL VISUAL THEME (Times New Roman)
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Cruxly — Read deeper. Faster.",
+    page_title="Cruxly — Intelligent News for Intelligent Readers",
     page_icon="cruxly_logo.jpg",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
+
+def get_base64_image(image_path: str) -> str:
+    with open(image_path, "rb") as img_file:
+        return base64.b64encode(img_file.read()).decode("utf-8")
+
+
+logo_b64 = get_base64_image("cruxly_logo.jpg")
+
 st.markdown(
     """
     <style>
     /* Global Times New Roman Typography */
-    html, body, [class*="css"], .stApp, button, input, select, textarea, p, h1, h2, h3, h4, h5, h6, span, div {
+    html, body, [class*="css"], .stApp, button, input, select, textarea, p, h1, h2, h3, h4, h5, h6, span, div, a {
         font-family: "Times New Roman", Times, serif !important;
     }
 
@@ -25,29 +34,64 @@ st.markdown(
         color: #102033;
     }
 
-    /* Deep Academic Blue Brand Banner */
-    .cruxly-banner {
-        background-color: #0B2545;
-        border: 2px solid #D4AF37;
+    /* Flush Hero Header (Logo + Matching Height Navy Banner, Zero Gap) */
+    .hero-wrapper {
+        display: flex;
+        align-items: stretch;
+        width: 100%;
+        height: 240px;
+        margin-bottom: 20px;
         border-radius: 12px;
-        padding: 18px 24px;
-        margin-bottom: 18px;
+        overflow: hidden;
+        border: 2px solid #D4AF37;
+        background-color: #0B2545;
+    }
+    .hero-logo {
+        height: 100%;
+        width: 240px;
+        object-fit: cover;
+        display: block;
+        flex-shrink: 0;
+        border-right: 2px solid #D4AF37;
+    }
+    .hero-banner-content {
+        flex: 1;
+        background-color: #0B2545;
+        padding: 24px 32px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
         color: #FFFFFF;
     }
-    .cruxly-title {
+    .hero-welcome {
         color: #E5C158;
-        font-size: 2.6rem;
+        font-size: 2.05rem;
         font-weight: bold;
-        margin: 0;
-        line-height: 1.1;
-        letter-spacing: 0.5px;
+        margin: 0 0 18px 0;
+        line-height: 1.25;
     }
-    .cruxly-tagline {
-        color: #F8E7B4;
-        font-size: 1.15rem;
-        font-style: italic;
-        margin-top: 4px;
-        margin-bottom: 0;
+
+    /* Official Multicolor Google Sign-In Button */
+    .google-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        background-color: #FFFFFF;
+        color: #1F1F1F !important;
+        text-decoration: none !important;
+        font-family: "Times New Roman", Times, serif !important;
+        font-weight: bold;
+        font-size: 1.1rem;
+        padding: 10px 22px;
+        border-radius: 6px;
+        border: 2px solid #D4AF37;
+        width: fit-content;
+        transition: none !important;
+        animation: none !important;
+    }
+    .google-btn:hover {
+        background-color: #F8F9FA;
+        color: #000000 !important;
     }
 
     /* Static Vibrant Menu Bar (Zero Animation) */
@@ -74,7 +118,7 @@ st.markdown(
     .nav-saved { background-color: #2D6A4F; }
     .nav-prefs { background-color: #B5651D; }
 
-    /* White News Card with Blue Border */
+    /* Content Card */
     .cruxly-card {
         background-color: #FFFFFF;
         border: 1.5px solid #1B4965;
@@ -95,6 +139,19 @@ st.markdown(
         border-radius: 6px !important;
         padding: 0.45rem 1.2rem !important;
         transition: none !important;
+    }
+
+    @media (max-width: 768px) {
+        .hero-wrapper {
+            flex-direction: column;
+            height: auto;
+        }
+        .hero-logo {
+            width: 100%;
+            height: auto;
+            border-right: none;
+            border-bottom: 2px solid #D4AF37;
+        }
     }
     </style>
     """,
@@ -130,7 +187,7 @@ if "code" in query_params:
         st.rerun()
     except Exception:
         st.query_params.clear()
-        st.warning("Your sign-in session could not be verified. Please try signing in with Gmail again.")
+        st.warning("Your sign-in session could not be verified. Please try signing in with Google again.")
 
 # Restore active session if present
 user = None
@@ -144,56 +201,65 @@ if "sb_session" in st.session_state:
     except Exception:
         st.session_state.pop("sb_session", None)
 
+# Multicolor Google "G" SVG Icon
+GOOGLE_SVG = """
+<svg width="20" height="20" viewBox="0 0 48 48">
+  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+</svg>
+"""
+
 # ---------------------------------------------------------
-# 4. BRAND HEADER & LOGO RENDERING
+# 4. AUTHENTICATION GATE & FLUSH HERO BANNER
 # ---------------------------------------------------------
-header_col1, header_col2 = st.columns([1.2, 4.8], vertical_alignment="center")
-with header_col1:
-    st.image("cruxly_logo.jpg", use_container_width=True)
-with header_col2:
+if not user:
+    oauth_url = "#"
+    try:
+        redirect_url = st.secrets.get("APP_REDIRECT_URL", "http://localhost:8501")
+        res = supabase.auth.sign_in_with_oauth(
+            {
+                "provider": "google",
+                "options": {"redirect_to": redirect_url},
+            }
+        )
+        if res and res.url:
+            oauth_url = res.url
+    except Exception:
+        oauth_url = "#"
+
     st.markdown(
-        """
-        <div class="cruxly-banner">
-            <div class="cruxly-title">Cruxly</div>
-            <div class="cruxly-tagline">Read deeper. Faster.</div>
+        f"""
+        <div class="hero-wrapper">
+            <img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />
+            <div class="hero-banner-content">
+                <div class="hero-welcome">Welcome to Cruxly — Intelligent News for Intelligent Readers...</div>
+                <a href="{oauth_url}" target="_self" class="google-btn">
+                    {GOOGLE_SVG}
+                    <span>Sign in with Google</span>
+                </a>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        f"""
+        <div class="hero-wrapper">
+            <img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />
+            <div class="hero-banner-content">
+                <div class="hero-welcome">Welcome to Cruxly — Intelligent News for Intelligent Readers...</div>
+                <div style="color: #F8E7B4; font-size: 1.05rem;">Signed in as: <strong>{user.email}</strong></div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-# ---------------------------------------------------------
-# 5. AUTHENTICATION GATE & STATUS ROUTING
-# ---------------------------------------------------------
-if not user:
-    st.markdown(
-        """
-        <div class="cruxly-card">
-            <h3>Welcome to Cruxly — Bilingual News Intelligence</h3>
-            <p>Sign in with your Gmail account to access verified, multi-source consolidated news reports in English and Bengali.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if st.button("Sign in with Gmail"):
-        try:
-            redirect_url = st.secrets.get("APP_REDIRECT_URL", "http://localhost:8501")
-            res = supabase.auth.sign_in_with_oauth(
-                {
-                    "provider": "google",
-                    "options": {"redirect_to": redirect_url},
-                }
-            )
-            if res and res.url:
-                st.markdown(f'<meta http-equiv="refresh" content="0;url={res.url}">', unsafe_allow_html=True)
-                st.info("Redirecting to Google Sign-In...")
-        except Exception:
-            st.error("Unable to start Google Sign-In right now. Please try again shortly.")
-else:
-    # Top Bar with Logout
-    top_l, top_r = st.columns([5, 1])
-    with top_l:
-        st.caption(f"Signed in as: **{user.email}**")
-    with top_r:
+    _, logout_col = st.columns([5, 1])
+    with logout_col:
         if st.button("Logout"):
             try:
                 supabase.auth.sign_out()
@@ -229,7 +295,6 @@ else:
     elif profile.get("account_status") == "rejected":
         st.error("Your access request was not approved by the administrator.")
     else:
-        # Approved User View
         st.markdown(
             """
             <div class="static-nav">
