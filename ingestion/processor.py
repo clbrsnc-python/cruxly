@@ -26,6 +26,15 @@ def _clean_text(raw: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _extract_json_object(raw_text: str) -> dict:
+    """Extracts and parses the first valid JSON object from LLM text output."""
+    cleaned = re.sub(r"^```json|```$", "", (raw_text or "").strip()).strip()
+    match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+    if not match:
+        raise ValueError("No JSON object found in model output")
+    return json.loads(match.group(0))
+
+
 def _get_existing_urls_and_headlines(supabase) -> tuple[set[str], set[str]]:
     """Fetches recently published article URLs and normalized headlines to prevent duplicates."""
     existing_urls: set[str] = set()
@@ -131,7 +140,7 @@ def _build_synthesis_prompt(cluster: list[dict]) -> str:
         "You are a senior news editor for Cruxly. Synthesize the following multi-source news notes "
         "into an original, objective, consolidated abridged report in BOTH English and natural Bengali (বাংলা). "
         "Do NOT copy sentences verbatim from any source. Cross-check details across sources.\n\n"
-        "Return a valid JSON object with EXACTLY these keys:\n"
+        "Respond ONLY with a raw JSON object (no markdown fences, no commentary) containing EXACTLY these keys:\n"
         '- "headline_en": Concise, factual English headline (max 15 words).\n'
         '- "primary_genre": One of ["National", "West Bengal", "International", "Economy & Business", "Science & Tech", "Sports", "Education", "Governance"].\n'
         '- "geography": Primary region (e.g., "West Bengal", "National", "International").\n'
@@ -155,10 +164,10 @@ def synthesize_cluster(
     source_names = sorted({item["source_name"] for item in cluster})
     geography = primary.get("geography", "National")
     prompt = _build_synthesis_prompt(cluster)
-    raw_json = None
+    raw_output = None
     llm_error = None
 
-    # 1. Try Groq production models if GROQ_API_KEY is configured
+    # 1. Try Groq reasoning models with reasoning_effort="low" and generous max_tokens
     if groq_api_key and Groq is not None:
         g_client = Groq(api_key=groq_api_key.strip())
         for model_id in GROQ_MODELS:
@@ -168,39 +177,45 @@ def synthesize_cluster(
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a precise bilingual news synthesis engine. Output strictly valid JSON.",
+                            "content": "You are a precise bilingual news synthesis engine. Output valid JSON only.",
                         },
                         {"role": "user", "content": prompt},
                     ],
-                    response_format={"type": "json_object"},
+                    reasoning_effort="low",
                     temperature=0.2,
-                    max_tokens=1000,
+                    max_tokens=4096,
                 )
-                raw_json = chat_resp.choices[0].message.content
-                llm_error = None
-                break
+                content = chat_resp.choices[0].message.content or ""
+                parsed = _extract_json_object(content)
+                return (
+                    {
+                        "headline_en": parsed.get("headline_en") or primary["title"],
+                        "primary_genre": parsed.get("primary_genre") or "National",
+                        "geography": parsed.get("geography") or geography,
+                        "summary_en": {
+                            "what_happened": parsed.get("what_happened_en", ""),
+                            "key_details": parsed.get("key_details_en", ""),
+                            "sources": source_names,
+                        },
+                        "summary_bn": {
+                            "what_happened": parsed.get("what_happened_bn", ""),
+                        },
+                    },
+                    None,
+                )
             except Exception as g_exc:
                 llm_error = f"Groq ({model_id}) error: {g_exc}"
-                raw_json = None
+                raw_output = None
 
     # 2. Try Gemini if Groq wasn't used or failed and GEMINI_API_KEY is configured
-    if not raw_json and gemini_api_key and genai is not None:
+    if not raw_output and gemini_api_key and genai is not None:
         try:
             client = genai.Client(api_key=gemini_api_key.strip())
             resp = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
             )
-            raw_json = resp.text
-            llm_error = None
-        except Exception as gem_exc:
-            llm_error = f"Gemini API error: {gem_exc}"
-            raw_json = None
-
-    if raw_json:
-        try:
-            cleaned = re.sub(r"^```json|```$", "", raw_json.strip()).strip()
-            parsed = json.loads(cleaned)
+            parsed = _extract_json_object(resp.text or "")
             return (
                 {
                     "headline_en": parsed.get("headline_en") or primary["title"],
@@ -217,8 +232,8 @@ def synthesize_cluster(
                 },
                 None,
             )
-        except Exception as parse_exc:
-            llm_error = f"JSON parse error: {parse_exc}"
+        except Exception as gem_exc:
+            llm_error = f"Gemini API error: {gem_exc}"
 
     # 3. Fallback when LLM is unavailable or errored
     combined_brief = primary["snippet"] or primary["title"]
