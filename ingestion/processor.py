@@ -17,6 +17,8 @@ except Exception:
 
 IST = pytz.timezone("Asia/Kolkata")
 
+GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+
 
 def _clean_text(raw: str) -> str:
     """Strips HTML tags and excess whitespace from RSS snippets."""
@@ -89,7 +91,7 @@ def fetch_rss_items(max_per_feed: int = 8) -> list[dict]:
     return collected
 
 
-def cluster_items(items: list[dict], max_clusters: int = 25) -> list[list[dict]]:
+def cluster_items(items: list[dict], max_clusters: int = 20) -> list[list[dict]]:
     """Groups articles covering the same event across distinct newspapers by keyword overlap."""
     clusters: list[list[dict]] = []
     stop_words = {
@@ -156,27 +158,30 @@ def synthesize_cluster(
     raw_json = None
     llm_error = None
 
-    # 1. Try Groq if GROQ_API_KEY is configured (using strict JSON object mode)
+    # 1. Try Groq production models if GROQ_API_KEY is configured
     if groq_api_key and Groq is not None:
-        try:
-            g_client = Groq(api_key=groq_api_key.strip())
-            chat_resp = g_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a precise bilingual news synthesis engine. Output strictly valid JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.2,
-                max_tokens=900,
-            )
-            raw_json = chat_resp.choices[0].message.content
-        except Exception as g_exc:
-            llm_error = f"Groq API error: {g_exc}"
-            raw_json = None
+        g_client = Groq(api_key=groq_api_key.strip())
+        for model_id in GROQ_MODELS:
+            try:
+                chat_resp = g_client.chat.completions.create(
+                    model=model_id,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a precise bilingual news synthesis engine. Output strictly valid JSON.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.2,
+                    max_tokens=1000,
+                )
+                raw_json = chat_resp.choices[0].message.content
+                llm_error = None
+                break
+            except Exception as g_exc:
+                llm_error = f"Groq ({model_id}) error: {g_exc}"
+                raw_json = None
 
     # 2. Try Gemini if Groq wasn't used or failed and GEMINI_API_KEY is configured
     if not raw_json and gemini_api_key and genai is not None:
