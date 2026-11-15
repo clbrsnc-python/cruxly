@@ -1,15 +1,18 @@
 import streamlit as st
 from supabase import Client
+from ingestion.processor import run_ingestion_cycle
 
 
 def render_admin_portal(supabase: Client, current_user_id: str, user_roles: list[str]) -> None:
-    """Renders the Administrator Console for Reader Access Governance and Audit Logs."""
+    """Renders the Administrator Console for Reader Access Governance, News Ingestion, and Audit Logs."""
     is_super_admin = "super_admin" in user_roles
 
     st.markdown("---")
-    st.markdown("### Administrator Console — Reader Access Governance")
+    st.markdown("### Administrator Console — Governance & News Pipeline")
 
-    tab_users, tab_audit = st.tabs(["User Approval & Governance", "System Audit Logs"])
+    tab_users, tab_ingest, tab_audit = st.tabs(
+        ["User Approval & Governance", "News Ingestion Control", "System Audit Logs"]
+    )
 
     # 1. USER APPROVAL & GOVERNANCE
     with tab_users:
@@ -79,7 +82,42 @@ def render_admin_portal(supabase: Client, current_user_id: str, user_roles: list
                         ).eq("id", u_id).execute()
                         st.rerun()
 
-    # 2. IMMUTABLE AUDIT LOGS (Super Admin Only)
+    # 2. MANUAL NEWS INGESTION TEST TRIGGER (Super Admin Only)
+    with tab_ingest:
+        if not is_super_admin:
+            st.info("News ingestion controls are restricted to Super Administrators.")
+        else:
+            gemini_key = st.secrets.get("GEMINI_API_KEY")
+            groq_key = st.secrets.get("GROQ_API_KEY")
+            ai_status = (
+                "Gemini API Connected"
+                if gemini_key
+                else ("Groq API Connected" if groq_key else "Fallback Mode (Add GEMINI_API_KEY or GROQ_API_KEY in Streamlit Secrets for AI bilingual synthesis)")
+            )
+            st.markdown(
+                f"""
+                <div class="cruxly-card">
+                    <h3>Multi-Source RSS Collection &amp; Cross-Verification</h3>
+                    <p><strong>Synthesis Engine:</strong> {ai_status}</p>
+                    <p>Click below to collect current headlines across your selected English, Bengali, and Hindi sources, cluster matching reports, and publish consolidated briefings to the Live Feed.</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("Run News Cycle Now", key="run_news_cycle_btn"):
+                with st.spinner("Collecting RSS feeds, clustering stories, and publishing consolidated briefings..."):
+                    result = run_ingestion_cycle(
+                        supabase,
+                        gemini_api_key=gemini_key,
+                        groq_api_key=groq_key,
+                    )
+                if result.get("published", 0) > 0:
+                    st.success(result["message"])
+                    st.rerun()
+                else:
+                    st.warning(result.get("message", "No new stories were published."))
+
+    # 3. IMMUTABLE AUDIT LOGS (Super Admin Only)
     with tab_audit:
         if not is_super_admin:
             st.info("Audit logs are restricted to Super Administrators.")
