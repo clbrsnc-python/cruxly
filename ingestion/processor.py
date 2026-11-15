@@ -19,6 +19,25 @@ IST = pytz.timezone("Asia/Kolkata")
 
 GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 
+ALLOWED_GENRES = {
+    "National Affairs",
+    "West Bengal",
+    "International",
+    "Economy & Business",
+    "Science & Tech",
+    "Governance & Policy",
+    "Education",
+    "Sports",
+    "Environment & Weather",
+}
+
+ALLOWED_GEOGRAPHIES = {
+    "National",
+    "West Bengal",
+    "International",
+    "Regional",
+}
+
 
 def _clean_text(raw: str) -> str:
     """Strips HTML tags and excess whitespace from RSS snippets."""
@@ -33,6 +52,38 @@ def _extract_json_object(raw_text: str) -> dict:
     if not match:
         raise ValueError("No JSON object found in model output")
     return json.loads(match.group(0))
+
+
+def _normalize_geography(raw_geo: str | None, fallback: str = "National") -> str:
+    """Maps LLM geography output strictly onto allowed database CHECK constraint values."""
+    val = (raw_geo or "").strip().lower()
+    if "bengal" in val or "kolkata" in val or "state" in val:
+        return "West Bengal"
+    if "internat" in val or "world" in val or "global" in val or "usa" in val or "us" == val:
+        return "International"
+    if "region" in val:
+        return "Regional"
+    if val in ("national", "india", "domestic"):
+        return "National"
+    return fallback if fallback in ALLOWED_GEOGRAPHIES else "National"
+
+
+def _normalize_genre(raw_genre: str | None, geography: str) -> str:
+    """Ensures every story has a distinct subject/desk label (never duplicating 'National | National')."""
+    cleaned = (raw_genre or "").strip()
+    for allowed in ALLOWED_GENRES:
+        if cleaned.lower() == allowed.lower():
+            return allowed
+    if geography == "West Bengal":
+        return "West Bengal"
+    if geography == "International":
+        return "International"
+    return "National Affairs"
+
+
+def _has_bengali_script(text: str) -> bool:
+    """Verifies that the Bengali summary actually uses Bengali Unicode characters (U+0980..U+09FF)."""
+    return bool(re.search(r"[\u0980-\u09FF]{5,}", text or ""))
 
 
 def _get_existing_urls_and_headlines(supabase) -> tuple[set[str], set[str]]:
@@ -101,11 +152,12 @@ def fetch_rss_items(max_per_feed: int = 8) -> list[dict]:
 
 
 def cluster_items(items: list[dict], max_clusters: int = 20) -> list[list[dict]]:
-    """Groups articles covering the same event across distinct newspapers by keyword overlap."""
+    """Groups articles covering the same specific event across distinct newspapers."""
     clusters: list[list[dict]] = []
     stop_words = {
         "the", "and", "for", "with", "from", "that", "this", "into",
         "over", "after", "amid", "says", "new", "india", "news", "will",
+        "credit", "card", "bank", "report", "state", "govt", "government",
     }
 
     def tokenize(text: str) -> set[str]:
@@ -120,7 +172,7 @@ def cluster_items(items: list[dict], max_clusters: int = 20) -> list[list[dict]]
             if item["source_id"] in existing_sources:
                 continue
             ref_tokens = tokenize(cluster[0]["title"])
-            if tokens and ref_tokens and len(tokens & ref_tokens) >= 2:
+            if tokens and ref_tokens and len(tokens & ref_tokens) >= 3:
                 cluster.append(item)
                 placed = True
                 break
@@ -137,16 +189,18 @@ def _build_synthesis_prompt(cluster: list[dict]) -> str:
         for it in cluster
     )
     return (
-        "You are a senior news editor for Cruxly. Synthesize the following multi-source news notes "
-        "into an original, objective, consolidated abridged report in BOTH English and natural Bengali (বাংলা). "
-        "Do NOT copy sentences verbatim from any source. Cross-check details across sources.\n\n"
-        "Respond ONLY with a raw JSON object (no markdown fences, no commentary) containing EXACTLY these keys:\n"
+        "You are a senior news editor for Cruxly in Kolkata, West Bengal. Synthesize the following news notes "
+        "into an original, objective, consolidated abridged report in BOTH English and standard Bengali (বাংলা লিপি).\n"
+        "CRITICAL LANGUAGE RULE: 'what_happened_bn' MUST be written strictly in Bengali Unicode script (বাংলা বর্ণমালা, e.g., কলকাতা, ভারত). "
+        "NEVER use Hindi (Devanagari) or Punjabi (Gurmukhi) script in 'what_happened_bn'.\n"
+        "Do NOT copy sentences verbatim from any source.\n\n"
+        "Respond ONLY with a raw JSON object containing EXACTLY these keys:\n"
         '- "headline_en": Concise, factual English headline (max 15 words).\n'
-        '- "primary_genre": One of ["National", "West Bengal", "International", "Economy & Business", "Science & Tech", "Sports", "Education", "Governance"].\n'
-        '- "geography": Primary region (e.g., "West Bengal", "National", "International").\n'
+        '- "primary_genre": MUST be one of ["National Affairs", "West Bengal", "International", "Economy & Business", "Science & Tech", "Governance & Policy", "Education", "Sports", "Environment & Weather"].\n'
+        '- "geography": MUST be one of ["National", "West Bengal", "International", "Regional"].\n'
         '- "what_happened_en": 2-3 clear sentences explaining the core verified facts in English.\n'
         '- "key_details_en": 2-3 sentences covering important context, differing source claims (if any), and next steps.\n'
-        '- "what_happened_bn": Natural, accurate Bengali (বাংলা) translation and synthesis of the core facts and key details (3-4 sentences).\n\n'
+        '- "what_happened_bn": Natural, accurate Bengali (বাংলা) summary of the core facts and key details (3-4 sentences in Bengali script only).\n\n'
         f"Source Notes:\n{source_notes}"
     )
 
@@ -158,16 +212,35 @@ def synthesize_cluster(
 ) -> tuple[dict, str | None]:
     """
     Generates an original consolidated abridged summary in English and Bengali.
-    Returns (synthesized_dict, optional_llm_error_string).
+    Enforces strict geography/genre normalization and Bengali Unicode script validation.
     """
     primary = cluster[0]
     source_names = sorted({item["source_name"] for item in cluster})
-    geography = primary.get("geography", "National")
+    fallback_geo = _normalize_geography(primary.get("geography"), "National")
     prompt = _build_synthesis_prompt(cluster)
-    raw_output = None
     llm_error = None
 
-    # 1. Try Groq reasoning models with reasoning_effort="low" and generous max_tokens
+    def _finalize_parsed(parsed: dict) -> dict:
+        geo = _normalize_geography(parsed.get("geography"), fallback_geo)
+        genre = _normalize_genre(parsed.get("primary_genre"), geo)
+        bn_text = (parsed.get("what_happened_bn") or "").strip()
+        if not _has_bengali_script(bn_text):
+            bn_text = f"সূত্র: {', '.join(source_names)} — {parsed.get('headline_en') or primary['title']}"
+        return {
+            "headline_en": parsed.get("headline_en") or primary["title"],
+            "primary_genre": genre,
+            "geography": geo,
+            "summary_en": {
+                "what_happened": parsed.get("what_happened_en", ""),
+                "key_details": parsed.get("key_details_en", ""),
+                "sources": source_names,
+            },
+            "summary_bn": {
+                "what_happened": bn_text,
+            },
+        }
+
+    # 1. Try Groq reasoning models
     if groq_api_key and Groq is not None:
         g_client = Groq(api_key=groq_api_key.strip())
         for model_id in GROQ_MODELS:
@@ -177,7 +250,10 @@ def synthesize_cluster(
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a precise bilingual news synthesis engine. Output valid JSON only.",
+                            "content": (
+                                "You are a precise bilingual news editor. Output valid JSON only. "
+                                "Write Bengali summaries strictly in Bengali script (বাংলা), never Hindi or Punjabi."
+                            ),
                         },
                         {"role": "user", "content": prompt},
                     ],
@@ -187,28 +263,12 @@ def synthesize_cluster(
                 )
                 content = chat_resp.choices[0].message.content or ""
                 parsed = _extract_json_object(content)
-                return (
-                    {
-                        "headline_en": parsed.get("headline_en") or primary["title"],
-                        "primary_genre": parsed.get("primary_genre") or "National",
-                        "geography": parsed.get("geography") or geography,
-                        "summary_en": {
-                            "what_happened": parsed.get("what_happened_en", ""),
-                            "key_details": parsed.get("key_details_en", ""),
-                            "sources": source_names,
-                        },
-                        "summary_bn": {
-                            "what_happened": parsed.get("what_happened_bn", ""),
-                        },
-                    },
-                    None,
-                )
+                return _finalize_parsed(parsed), None
             except Exception as g_exc:
                 llm_error = f"Groq ({model_id}) error: {g_exc}"
-                raw_output = None
 
-    # 2. Try Gemini if Groq wasn't used or failed and GEMINI_API_KEY is configured
-    if not raw_output and gemini_api_key and genai is not None:
+    # 2. Try Gemini if configured
+    if gemini_api_key and genai is not None:
         try:
             client = genai.Client(api_key=gemini_api_key.strip())
             resp = client.models.generate_content(
@@ -216,32 +276,18 @@ def synthesize_cluster(
                 contents=prompt,
             )
             parsed = _extract_json_object(resp.text or "")
-            return (
-                {
-                    "headline_en": parsed.get("headline_en") or primary["title"],
-                    "primary_genre": parsed.get("primary_genre") or "National",
-                    "geography": parsed.get("geography") or geography,
-                    "summary_en": {
-                        "what_happened": parsed.get("what_happened_en", ""),
-                        "key_details": parsed.get("key_details_en", ""),
-                        "sources": source_names,
-                    },
-                    "summary_bn": {
-                        "what_happened": parsed.get("what_happened_bn", ""),
-                    },
-                },
-                None,
-            )
+            return _finalize_parsed(parsed), None
         except Exception as gem_exc:
             llm_error = f"Gemini API error: {gem_exc}"
 
     # 3. Fallback when LLM is unavailable or errored
     combined_brief = primary["snippet"] or primary["title"]
+    fallback_genre = "West Bengal" if fallback_geo == "West Bengal" else "National Affairs"
     return (
         {
             "headline_en": primary["title"],
-            "primary_genre": "National" if geography == "National" else "West Bengal",
-            "geography": geography,
+            "primary_genre": fallback_genre,
+            "geography": fallback_geo,
             "summary_en": {
                 "what_happened": combined_brief,
                 "key_details": f"Corroborated across {', '.join(source_names)}. Click original publisher links for full coverage.",
@@ -268,7 +314,6 @@ def run_ingestion_cycle(
 
     existing_urls, existing_headlines = _get_existing_urls_and_headlines(supabase)
 
-    # Filter out RSS items whose exact URL was already published
     fresh_items = [it for it in raw_items if it["url"] not in existing_urls]
     if not fresh_items:
         raw_items.clear()
@@ -335,7 +380,6 @@ def run_ingestion_cycle(
             errors.append(str(ins_exc))
             continue
 
-    # Explicitly discard temporary source text immediately after processing
     raw_items.clear()
     fresh_items.clear()
     clusters.clear()
