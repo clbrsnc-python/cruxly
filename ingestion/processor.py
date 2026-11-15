@@ -188,6 +188,7 @@ def run_ingestion_cycle(
 
     clusters = cluster_items(raw_items, max_clusters=8)
     published_count = 0
+    errors: list[str] = []
     now_ist_iso = datetime.now(IST).isoformat()
 
     for cluster in clusters:
@@ -220,11 +221,29 @@ def run_ingestion_cycle(
                 ]
                 try:
                     supabase.table("story_references").insert(refs).execute()
-                except Exception:
-                    pass
+                except Exception as ref_exc:
+                    errors.append(f"Reference insert error: {ref_exc}")
                 published_count += 1
-        except Exception:
+        except Exception as ins_exc:
+            errors.append(str(ins_exc))
             continue
+
+    # Explicitly discard temporary source text immediately after processing
+    raw_items.clear()
+    clusters.clear()
+
+    if published_count == 0 and errors:
+        return {
+            "fetched": fetched_count,
+            "published": 0,
+            "message": f"Fetched {fetched_count} RSS items, but insert failed: {errors[0]}",
+        }
+
+    return {
+        "fetched": fetched_count,
+        "published": published_count,
+        "message": f"Fetched {fetched_count} RSS items and published {published_count} consolidated briefings.",
+    }
 
     # Explicitly discard temporary source text immediately after processing
     raw_items.clear()
