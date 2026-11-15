@@ -5,15 +5,13 @@ from supabase import Client
 def render_reader_portal(supabase: Client, user, profile: dict) -> None:
     """Renders the approved reader workspace: Live Feed, Editions, Archive, Saved News, and Preferences."""
     st.markdown(
-        """
-        <div class="static-nav">
-            <span class="nav-pill nav-home">Live Feed</span>
-            <span class="nav-pill nav-edition">Morning / Evening Editions</span>
-            <span class="nav-pill nav-archive">3-Month Archive</span>
-            <span class="nav-pill nav-saved">Saved News</span>
-            <span class="nav-pill nav-prefs">Preferences</span>
-        </div>
-        """,
+        '<div class="static-nav">'
+        '<span class="nav-pill nav-home">Live Feed</span>'
+        '<span class="nav-pill nav-edition">Morning / Evening Editions</span>'
+        '<span class="nav-pill nav-archive">3-Month Archive</span>'
+        '<span class="nav-pill nav-saved">Saved News</span>'
+        '<span class="nav-pill nav-prefs">Preferences</span>'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -51,12 +49,10 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
 
         if not stories:
             st.markdown(
-                """
-                <div class="cruxly-card">
-                    <h3>Cruxly Foundation Connected — Ready for First News Cycle</h3>
-                    <p>Your reader portal is active. Consolidated multi-source news stories will appear here automatically once the RSS ingestion pipeline publishes its first verified cycle.</p>
-                </div>
-                """,
+                '<div class="cruxly-card">'
+                '<h3>Cruxly Foundation Connected — Ready for First News Cycle</h3>'
+                '<p>Your reader portal is active. Consolidated multi-source news stories will appear here automatically once the RSS ingestion pipeline publishes its first verified cycle.</p>'
+                '</div>',
                 unsafe_allow_html=True,
             )
         else:
@@ -80,27 +76,23 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
 
                 en_html = ""
                 if lang_choice in ("English", "Bilingual (English + বাংলা)"):
-                    en_html = (
-                        f"<p><strong>What Happened:</strong> {summary_en.get('what_happened', '—')}</p>"
-                        f"<p><strong>Key Details:</strong> {summary_en.get('key_details', '—')}</p>"
-                    )
+                    wh_en = (summary_en.get("what_happened") or "—").replace("\n", " ")
+                    kd_en = (summary_en.get("key_details") or "—").replace("\n", " ")
+                    en_html = f"<p><strong>What Happened:</strong> {wh_en}</p><p><strong>Key Details:</strong> {kd_en}</p>"
 
                 bn_html = ""
                 if lang_choice in ("Bengali (বাংলা)", "Bilingual (English + বাংলা)") and summary_bn:
-                    bn_html = f"<p><strong>সারসংক্ষেপ:</strong> {summary_bn.get('what_happened', '—')}</p>"
+                    wh_bn = (summary_bn.get("what_happened") or "—").replace("\n", " ")
+                    bn_html = f"<p><strong>সারসংক্ষেপ:</strong> {wh_bn}</p>"
 
-                st.markdown(
-                    f"""
-                    <div class="cruxly-card">
-                        <span class="badge-tag">{story.get('primary_genre', 'General')} | {story.get('geography', 'National')}</span>
-                        <h3>{story.get('headline_en', 'Untitled Report')}</h3>
-                        {en_html}
-                        {bn_html}
-                        {links_html}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+                card_html = (
+                    f'<div class="cruxly-card">'
+                    f'<span class="badge-tag">{story.get("primary_genre", "General")} | {story.get("geography", "National")}</span>'
+                    f'<h3>{story.get("headline_en", "Untitled Report")}</h3>'
+                    f'{en_html}{bn_html}{links_html}'
+                    f'</div>'
                 )
+                st.markdown(card_html, unsafe_allow_html=True)
 
                 if st.button("Bookmark Story", key=f"bm_{s_id}"):
                     try:
@@ -114,12 +106,10 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
     # 2. MORNING / EVENING EDITIONS
     with tab_editions:
         st.markdown(
-            """
-            <div class="cruxly-card">
-                <h3>Scheduled Consolidated Editions</h3>
-                <p>Curated morning and evening briefings summarizing major verified developments across National, State, International, Economy, and Science &amp; Technology desks.</p>
-            </div>
-            """,
+            '<div class="cruxly-card">'
+            '<h3>Scheduled Consolidated Editions</h3>'
+            '<p>Curated morning and evening briefings summarizing major verified developments across National, State, International, Economy, and Science &amp; Technology desks.</p>'
+            '</div>',
             unsafe_allow_html=True,
         )
 
@@ -141,15 +131,13 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
                 if not results:
                     st.info("No archived reports matched your search term.")
                 for row in results:
-                    st.markdown(
-                        f"""
-                        <div class="cruxly-card">
-                            <span class="badge-tag">{row.get('primary_genre', 'News')} | {row.get('geography', 'National')}</span>
-                            <h3>{row.get('headline_en', 'Untitled')}</h3>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
+                    arch_card_html = (
+                        f'<div class="cruxly-card">'
+                        f'<span class="badge-tag">{row.get("primary_genre", "News")} | {row.get("geography", "National")}</span>'
+                        f'<h3>{row.get("headline_en", "Untitled")}</h3>'
+                        f'</div>'
                     )
+                    st.markdown(arch_card_html, unsafe_allow_html=True)
             except Exception as arch_exc:
                 st.error(f"Archive search error: {arch_exc}")
 
@@ -172,26 +160,22 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
         else:
             for item in saved_items:
                 st_info = item.get("stories") or {}
-                st.markdown(
-                    f"""
-                    <div class="cruxly-card">
-                        <span class="badge-tag">{st_info.get('primary_genre', 'Saved')} | {st_info.get('geography', 'National')}</span>
-                        <h3>{st_info.get('headline_en', 'Saved Report')}</h3>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+                saved_card_html = (
+                    f'<div class="cruxly-card">'
+                    f'<span class="badge-tag">{st_info.get("primary_genre", "Saved")} | {st_info.get("geography", "National")}</span>'
+                    f'<h3>{st_info.get("headline_en", "Saved Report")}</h3>'
+                    f'</div>'
                 )
+                st.markdown(saved_card_html, unsafe_allow_html=True)
 
     # 5. PREFERENCES
     with tab_prefs:
-        st.markdown(
-            f"""
-            <div class="cruxly-card">
-                <h3>Reader Profile &amp; Feed Preferences</h3>
-                <p><strong>Name:</strong> {profile.get('full_name') or 'Registered Reader'}</p>
-                <p><strong>Email:</strong> {profile.get('email')}</p>
-                <p><strong>Account Status:</strong> {profile.get('account_status', 'approved').upper()}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        prefs_card_html = (
+            f'<div class="cruxly-card">'
+            f'<h3>Reader Profile &amp; Feed Preferences</h3>'
+            f'<p><strong>Name:</strong> {profile.get("full_name") or "Registered Reader"}</p>'
+            f'<p><strong>Email:</strong> {profile.get("email")}</p>'
+            f'<p><strong>Account Status:</strong> {profile.get("account_status", "approved").upper()}</p>'
+            f'</div>'
         )
+        st.markdown(prefs_card_html, unsafe_allow_html=True)
