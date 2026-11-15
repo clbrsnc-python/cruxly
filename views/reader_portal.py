@@ -38,10 +38,10 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
         try:
             stories_res = (
                 supabase.table("stories")
-                .select("*, story_references(publisher_name, article_url, language)")
+                .select("*, story_references(source_name, article_url, hindi_original_headline)")
                 .eq("status", "published")
                 .order("published_at", desc=True)
-                .limit(20)
+                .limit(25)
                 .execute()
             )
             stories = stories_res.data or []
@@ -69,12 +69,14 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
                 links_html = ""
                 if refs:
                     anchors = " | ".join(
-                        f'<a href="{r["article_url"]}" target="_blank" rel="noopener noreferrer">{r["publisher_name"]}</a>'
+                        f'<a href="{r["article_url"]}" target="_blank" rel="noopener noreferrer">{r["source_name"]}</a>'
                         for r in refs
                         if r.get("article_url")
                     )
                     if anchors:
                         links_html = f'<p style="font-size: 0.95rem; color: #1B4965;"><strong>Original Reporting:</strong> {anchors}</p>'
+                elif summary_en.get("sources"):
+                    links_html = f'<p style="font-size: 0.95rem; color: #1B4965;"><strong>Sources:</strong> {", ".join(summary_en["sources"])}</p>'
 
                 en_html = ""
                 if lang_choice in ("English", "Bilingual (English + বাংলা)"):
