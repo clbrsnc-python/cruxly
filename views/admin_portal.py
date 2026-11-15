@@ -42,20 +42,18 @@ def render_admin_portal(supabase: Client, current_user_id: str, user_roles: list
             u_roles = ", ".join(u_row.get("roles") or ["app_user"])
             rej_note = u_row.get("rejection_reason")
 
-            st.markdown(
-                f"""
-                <div class="cruxly-card">
-                    <span class="badge-tag">Status: {u_status.upper()} | Roles: {u_roles}</span>
-                    <h3>{u_row.get('full_name') or 'Reader'} ({u_row.get('email')})</h3>
-                    <p style="font-size: 0.92rem; color: #1B4965;">
-                        Reviewed At: {u_row.get('approved_at') or '—'} |
-                        Reviewed By ID: {u_row.get('approved_by') or '—'}
-                        {f' | Reason: {rej_note}' if rej_note else ''}
-                    </p>
-                </div>
-                """,
-                unsafe_allow_html=True,
+            user_card_html = (
+                f'<div class="cruxly-card">'
+                f'<span class="badge-tag">Status: {u_status.upper()} | Roles: {u_roles}</span>'
+                f'<h3>{u_row.get("full_name") or "Reader"} ({u_row.get("email")})</h3>'
+                f'<p style="font-size: 0.92rem; color: #1B4965;">'
+                f'Reviewed At: {u_row.get("approved_at") or "—"} | '
+                f'Reviewed By ID: {u_row.get("approved_by") or "—"}'
+                f'{f" | Reason: {rej_note}" if rej_note else ""}'
+                f'</p>'
+                f'</div>'
             )
+            st.markdown(user_card_html, unsafe_allow_html=True)
 
             if u_id != current_user_id:
                 c1, c2, c3 = st.columns([1, 1, 3])
@@ -90,20 +88,23 @@ def render_admin_portal(supabase: Client, current_user_id: str, user_roles: list
             gemini_key = st.secrets.get("GEMINI_API_KEY")
             groq_key = st.secrets.get("GROQ_API_KEY")
             ai_status = (
-                "Gemini API Connected"
-                if gemini_key
-                else ("Groq API Connected" if groq_key else "Fallback Mode (Add GEMINI_API_KEY or GROQ_API_KEY in Streamlit Secrets for AI bilingual synthesis)")
+                "Groq API Connected"
+                if groq_key
+                else (
+                    "Gemini API Connected"
+                    if gemini_key
+                    else "Fallback Mode (Add GROQ_API_KEY or GEMINI_API_KEY in Streamlit Secrets for AI bilingual synthesis)"
+                )
             )
-            st.markdown(
-                f"""
-                <div class="cruxly-card">
-                    <h3>Multi-Source RSS Collection &amp; Cross-Verification</h3>
-                    <p><strong>Synthesis Engine:</strong> {ai_status}</p>
-                    <p>Click below to collect current headlines across your selected English, Bengali, and Hindi sources, cluster matching reports, and publish consolidated briefings to the Live Feed.</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
+            ingest_card_html = (
+                f'<div class="cruxly-card">'
+                f'<h3>Multi-Source RSS Collection &amp; Cross-Verification</h3>'
+                f'<p><strong>Synthesis Engine:</strong> {ai_status}</p>'
+                f'<p>Click below to collect current headlines across your selected English, Bengali, and Hindi sources, cluster matching reports, and publish consolidated briefings to the Live Feed.</p>'
+                f'</div>'
             )
+            st.markdown(ingest_card_html, unsafe_allow_html=True)
+
             if st.button("Run News Cycle Now", key="run_news_cycle_btn"):
                 with st.spinner("Collecting RSS feeds, clustering stories, and publishing consolidated briefings..."):
                     result = run_ingestion_cycle(
@@ -111,11 +112,14 @@ def render_admin_portal(supabase: Client, current_user_id: str, user_roles: list
                         gemini_api_key=gemini_key,
                         groq_api_key=groq_key,
                     )
-                if result.get("published", 0) > 0:
-                    st.success(result["message"])
-                    st.rerun()
+                st.session_state["last_ingest_result"] = result
+
+            if "last_ingest_result" in st.session_state:
+                res = st.session_state["last_ingest_result"]
+                if res.get("published", 0) > 0:
+                    st.success(res["message"])
                 else:
-                    st.warning(result.get("message", "No new stories were published."))
+                    st.warning(res.get("message", "No new stories were published."))
 
     # 3. IMMUTABLE AUDIT LOGS (Super Admin Only)
     with tab_audit:
@@ -139,15 +143,13 @@ def render_admin_portal(supabase: Client, current_user_id: str, user_roles: list
                 st.info("No governance audit events recorded yet.")
             else:
                 for log in logs:
-                    st.markdown(
-                        f"""
-                        <div class="cruxly-card">
-                            <span class="badge-tag">{log.get('action_type', 'event')} | Outcome: {log.get('outcome', 'success')}</span>
-                            <p><strong>Timestamp:</strong> {log.get('created_at')} | <strong>Target:</strong> {log.get('target_entity')}</p>
-                            <p style="font-size: 0.9rem; color: #1B4965;">
-                                <strong>Before:</strong> {log.get('before_state')} → <strong>After:</strong> {log.get('after_state')}
-                            </p>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
+                    log_card_html = (
+                        f'<div class="cruxly-card">'
+                        f'<span class="badge-tag">{log.get("action_type", "event")} | Outcome: {log.get("outcome", "success")}</span>'
+                        f'<p><strong>Timestamp:</strong> {log.get("created_at")} | <strong>Target:</strong> {log.get("target_entity")}</p>'
+                        f'<p style="font-size: 0.9rem; color: #1B4965;">'
+                        f'<strong>Before:</strong> {log.get("before_state")} → <strong>After:</strong> {log.get("after_state")}'
+                        f'</p>'
+                        f'</div>'
                     )
+                    st.markdown(log_card_html, unsafe_allow_html=True)
