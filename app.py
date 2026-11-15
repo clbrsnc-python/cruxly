@@ -145,7 +145,7 @@ st.markdown(
         margin-bottom: 8px;
         font-size: 1.3rem;
     }
-    .cruxly-card p {
+    .cruxly-card p, .cruxly-card li {
         margin-top: 0;
         margin-bottom: 8px;
         font-size: 1.05rem;
@@ -179,13 +179,20 @@ st.markdown(
     /* Discreet Footer Note (DPR v1.1 Section 8 & 11) */
     .cruxly-footer {
         margin-top: 28px;
-        padding: 14px 20px;
+        padding: 16px 20px;
         background-color: #E8EEF5;
         border-top: 2px solid #1B4965;
         border-radius: 6px;
         font-size: 0.95rem;
         color: #102033;
         text-align: center;
+        line-height: 1.6;
+    }
+    .cruxly-footer a {
+        color: #0B2545;
+        font-weight: bold;
+        text-decoration: underline;
+        margin: 0 8px;
     }
 
     @media (max-width: 768px) {
@@ -222,9 +229,84 @@ except Exception:
     st.stop()
 
 # ---------------------------------------------------------
-# 3. OAUTH CALLBACK HANDLER (PKCE / CODE EXCHANGE)
+# 3. PUBLIC LEGAL & POLICY PAGES (?page=privacy / ?page=terms)
 # ---------------------------------------------------------
 query_params = st.query_params
+active_page = query_params.get("page")
+
+if active_page == "privacy":
+    st.markdown(
+        f'<div class="hero-wrapper">'
+        f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
+        f'<div class="hero-banner-content">'
+        f'<div class="hero-welcome">Cruxly — Privacy Policy &amp; Data Protection</div>'
+        f'<a href="?" target="_top" class="google-btn"><span>← Back to Cruxly Home</span></a>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <div class="cruxly-card">
+            <h3>1. Purpose of Cruxly</h3>
+            <p><strong>Cruxly</strong> (<em>Read deeper. Faster.</em>) is a personalised news intelligence platform that collects and cross-verifies public reports from selected English, Bengali, and Hindi newspapers to deliver original consolidated abridged summaries in English and Bengali with direct links to original reporting.</p>
+            <h3>2. Google Account Information Collected</h3>
+            <p>When you sign in with Google, Cruxly receives only your basic Google profile identity:</p>
+            <ul>
+                <li><strong>Email Address (Gmail):</strong> Used as your unique login identifier and to communicate account approval status.</li>
+                <li><strong>Display Name:</strong> Used to identify your registration request during administrator review.</li>
+            </ul>
+            <h3>3. How Your Data Is Used &amp; Protected</h3>
+            <ul>
+                <li>Your personal information is never sold, rented, or shared with third-party advertisers.</li>
+                <li>All reader accounts require manual administrator approval before full portal access is granted.</li>
+                <li>Reading preferences (selected state, topic priorities, excluded sources) and saved bookmarks are stored securely with strict row-level access controls so only you can access your personal settings.</li>
+            </ul>
+            <h3>4. Contact &amp; Data Removal</h3>
+            <p>Registered readers may request account removal or data deletion at any time by contacting the Cruxly Administrator.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
+if active_page == "terms":
+    st.markdown(
+        f'<div class="hero-wrapper">'
+        f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
+        f'<div class="hero-banner-content">'
+        f'<div class="hero-welcome">Cruxly — Copyright, Publisher Attribution &amp; Terms of Use</div>'
+        f'<a href="?" target="_top" class="google-btn"><span>← Back to Cruxly Home</span></a>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <div class="cruxly-card">
+            <h3>1. Copyright &amp; Fair-Dealing Compliance</h3>
+            <ul>
+                <li><strong>Original Abridged Summaries Only:</strong> Cruxly creates original, independent consolidated summaries and original translations in English and Bengali. Cruxly never republishes full newspaper articles, e-paper PDFs, or substantial verbatim excerpts.</li>
+                <li><strong>Direct Publisher Attribution:</strong> Every consolidated report provides direct links and clear attribution to the original reporting newspapers so readers can read full articles on the publishers' official websites.</li>
+                <li><strong>Image Policy:</strong> Unauthorised newspaper photographs are never reproduced. Images are displayed only when rights-cleared or properly licensed.</li>
+                <li><strong>Temporary Source Text Removal:</strong> Any temporary extracted source text used for cross-verification is deleted immediately after processing and verification.</li>
+            </ul>
+            <h3>2. Editorial Standards &amp; Sensitive News Safeguards</h3>
+            <ul>
+                <li>Reports separate verified facts, important details, attributed viewpoints, and next steps.</li>
+                <li>Sensitive stories require corroboration from at least five genuinely independent newspapers alongside central-fact verification before publication.</li>
+            </ul>
+            <h3>3. Support Original Journalism</h3>
+            <p>Attribution and abridged synthesis are provided for informational news intelligence and do not substitute for full newspaper subscriptions. Readers are encouraged to support journalism by purchasing original newspaper editions.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
+# ---------------------------------------------------------
+# 4. OAUTH CALLBACK HANDLER (PKCE / CODE EXCHANGE)
+# ---------------------------------------------------------
 if "code" in query_params:
     try:
         auth_response = supabase.auth.exchange_code_for_session({"auth_code": query_params["code"]})
@@ -249,12 +331,12 @@ if "sb_session" in st.session_state:
         st.session_state.pop("sb_session", None)
 
 # ---------------------------------------------------------
-# 4. PUBLIC HOMEPAGE / LOGIN GATE (DPR v1.1 Sections 1, 2, 8, 11)
+# 5. PUBLIC HOMEPAGE / LOGIN GATE (DPR v1.1 Sections 1, 2, 8, 11)
 # ---------------------------------------------------------
 if not user:
     oauth_url = "#"
     try:
-        redirect_url = st.secrets.get("APP_REDIRECT_URL", "http://localhost:8501")
+        redirect_url = st.secrets.get("APP_REDIRECT_URL", "https://cruxly.streamlit.app")
         res = supabase.auth.sign_in_with_oauth(
             {
                 "provider": "google",
@@ -266,13 +348,13 @@ if not user:
     except Exception:
         oauth_url = "#"
 
-    # Flush Hero Header with Punctuated Welcome & Clean Multicolor Google Button
+    # Flush Hero Header with target="_top"
     st.markdown(
         f'<div class="hero-wrapper">'
         f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
         f'<div class="hero-banner-content">'
         f'<div class="hero-welcome">Welcome to Cruxly — Intelligent News for Intelligent Readers.</div>'
-        f'<a href="{oauth_url}" target="_self" class="google-btn">'
+        f'<a href="{oauth_url}" target="_top" class="google-btn">'
         f'<img src="{GOOGLE_ICON_URI}" width="20" height="20" alt="Google" />'
         f'<span>Sign in with Google</span>'
         f'</a>'
@@ -281,15 +363,15 @@ if not user:
         unsafe_allow_html=True,
     )
 
-    # DPR Section 1 & 2: Core Promise, Access Policy & Public Shared Headline Previews
-    col_about, col_access = st.columns(2)
+    # DPR Section 1, 2 & 11: Core Promise, Access Policy & Copyright Transparency on Homepage
+    col_about, col_access, col_legal = st.columns(3)
     with col_about:
         st.markdown(
             """
             <div class="cruxly-card">
-                <h3>Core Editorial Promise</h3>
-                <p>Read across sources, understand the essential facts faster, and return to original reporting whenever deeper reading is needed.</p>
-                <p><strong>Languages:</strong> Consolidated reports in English and Bengali across 12 curated genres, with direct links to original newspapers.</p>
+                <h3>About Cruxly — Core Promise</h3>
+                <p><strong>Cruxly</strong> (<em>Read deeper. Faster.</em>) cross-verifies reporting from 15 selected English, Bengali, and Hindi newspapers into original consolidated abridged summaries in English and Bengali.</p>
+                <p>Understand essential facts across sources faster, and return to original reporting whenever deeper reading is needed.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -298,9 +380,20 @@ if not user:
         st.markdown(
             """
             <div class="cruxly-card">
-                <h3>Reader Registration &amp; Access Policy</h3>
-                <p><strong>Sign-In:</strong> Register or sign in using your Gmail account.</p>
+                <h3>Reader Registration &amp; Access</h3>
+                <p><strong>Gmail Sign-In:</strong> Register or sign in using your Gmail account.</p>
                 <p><strong>Administrator Approval:</strong> Protected access to full consolidated reports, scheduled editions (06:00 AM &amp; 06:00 PM IST), and the searchable archive requires administrator approval.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with col_legal:
+        st.markdown(
+            """
+            <div class="cruxly-card">
+                <h3>Copyright &amp; Publisher Attribution</h3>
+                <p><strong>Original Abridged Synthesis:</strong> Cruxly never reproduces full articles, e-papers, or unauthorised newspaper photos. Every report includes direct links to original publishers.</p>
+                <p>Read full policies under <a href="?page=terms" target="_top">Copyright &amp; Terms</a> and <a href="?page=privacy" target="_top">Privacy Policy</a>.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -348,12 +441,14 @@ if not user:
             unsafe_allow_html=True,
         )
 
-    # DPR Section 11 & 8: Discreet Transparency & Original Edition Footer
+    # DPR Section 11 & 8: Discreet Footer with About/Terms, Privacy Policy & Original Edition Note
     st.markdown(
         """
         <div class="cruxly-footer">
             <strong>Cruxly — Read deeper. Faster.</strong> | Original abridged synthesis with direct attribution to original publishers.
-            Readers are encouraged to support journalism by purchasing original newspaper editions.
+            Readers are encouraged to support journalism by purchasing original newspaper editions.<br/>
+            <a href="?page=terms" target="_top">Copyright, Attribution &amp; Terms</a> |
+            <a href="?page=privacy" target="_top">Privacy Policy</a>
         </div>
         """,
         unsafe_allow_html=True,
@@ -429,7 +524,9 @@ else:
     st.markdown(
         """
         <div class="cruxly-footer">
-            <strong>Cruxly — Read deeper. Faster.</strong> | Readers are encouraged to support journalism by purchasing original newspaper editions.
+            <strong>Cruxly — Read deeper. Faster.</strong> | Readers are encouraged to support journalism by purchasing original newspaper editions.<br/>
+            <a href="?page=terms" target="_top">Copyright, Attribution &amp; Terms</a> |
+            <a href="?page=privacy" target="_top">Privacy Policy</a>
         </div>
         """,
         unsafe_allow_html=True,
