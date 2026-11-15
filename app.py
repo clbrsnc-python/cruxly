@@ -2,7 +2,6 @@ import base64
 import hashlib
 import streamlit as st
 from supabase import create_client, Client, ClientOptions
-from supabase.lib.client_options import SyncSupportedStorage
 
 # ---------------------------------------------------------
 # 1. PAGE CONFIG & GLOBAL VISUAL THEME (Times New Roman)
@@ -194,23 +193,22 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 2. CROSS-TAB PKCE STORAGE & SUPABASE CLIENT
+# 2. DETERMINISTIC PKCE STORAGE & SUPABASE CLIENT
 # ---------------------------------------------------------
-class DeterministicPKCEStorage(SyncSupportedStorage):
-    """Preserves PKCE code_verifier across new-tab OAuth redirects in Streamlit Cloud."""
+class FixedVerifierStorage:
+    """Ensures gotrue-py always uses the exact same PKCE code_verifier across tabs/reruns."""
 
-    def __init__(self, seed: str):
+    def __init__(self, fixed_verifier: str):
         self._store: dict[str, str] = {}
-        # 64-char URL-safe deterministic verifier for PKCE code exchange
-        self._fixed_verifier = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+        self._fixed_verifier = fixed_verifier
 
     def get_item(self, key: str) -> str | None:
-        if key.endswith("-code-verifier"):
-            return self._store.get(key) or self._fixed_verifier
+        if "code-verifier" in key:
+            return self._fixed_verifier
         return self._store.get(key)
 
     def set_item(self, key: str, value: str) -> None:
-        if key.endswith("-code-verifier"):
+        if "code-verifier" in key:
             self._store[key] = self._fixed_verifier
         else:
             self._store[key] = value
@@ -219,16 +217,25 @@ class DeterministicPKCEStorage(SyncSupportedStorage):
         self._store.pop(key, None)
 
 
+def get_fixed_verifier() -> str:
+    seed = f"{st.secrets['SUPABASE_URL']}:{st.secrets['SUPABASE_ANON_KEY']}"
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()
+
+
 def get_supabase() -> Client:
     if "sb_client" not in st.session_state:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_ANON_KEY"]
-        storage = DeterministicPKCEStorage(seed=f"{url}:{key}")
-        st.session_state["sb_client"] = create_client(
+        verifier = get_fixed_verifier()
+        storage = FixedVerifierStorage(verifier)
+        client = create_client(
             url,
             key,
             options=ClientOptions(flow_type="pkce", storage=storage),
         )
+        # Override gotrue's internal _storage directly so sign_in_with_oauth uses our verifier
+        client.auth._storage = storage
+        st.session_state["sb_client"] = client
     return st.session_state["sb_client"]
 
 
@@ -321,7 +328,12 @@ if active_page == "terms":
 # ---------------------------------------------------------
 if "code" in query_params and "sb_session" not in st.session_state:
     try:
-        auth_response = supabase.auth.exchange_code_for_session({"auth_code": query_params["code"]})
+        auth_response = supabase.auth.exchange_code_for_session(
+            {
+                "auth_code": query_params["code"],
+                "code_verifier": get_fixed_verifier(),
+            }
+        )
         if auth_response and auth_response.session:
             st.session_state["sb_session"] = auth_response.session
             st.query_params.clear()
