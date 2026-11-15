@@ -38,7 +38,7 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
         try:
             stories_res = (
                 supabase.table("stories")
-                .select("*")
+                .select("*, story_references(publisher_name, article_url, language)")
                 .eq("status", "published")
                 .order("published_at", desc=True)
                 .limit(20)
@@ -64,27 +64,41 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
                 s_id = story["id"]
                 summary_en = story.get("summary_en") or {}
                 summary_bn = story.get("summary_bn") or {}
+                refs = story.get("story_references") or []
+
+                links_html = ""
+                if refs:
+                    anchors = " | ".join(
+                        f'<a href="{r["article_url"]}" target="_blank" rel="noopener noreferrer">{r["publisher_name"]}</a>'
+                        for r in refs
+                        if r.get("article_url")
+                    )
+                    if anchors:
+                        links_html = f'<p style="font-size: 0.95rem; color: #1B4965;"><strong>Original Reporting:</strong> {anchors}</p>'
+
+                en_html = ""
+                if lang_choice in ("English", "Bilingual (English + বাংলা)"):
+                    en_html = (
+                        f"<p><strong>What Happened:</strong> {summary_en.get('what_happened', '—')}</p>"
+                        f"<p><strong>Key Details:</strong> {summary_en.get('key_details', '—')}</p>"
+                    )
+
+                bn_html = ""
+                if lang_choice in ("Bengali (বাংলা)", "Bilingual (English + বাংলা)") and summary_bn:
+                    bn_html = f"<p><strong>সারসংক্ষেপ:</strong> {summary_bn.get('what_happened', '—')}</p>"
 
                 st.markdown(
                     f"""
                     <div class="cruxly-card">
                         <span class="badge-tag">{story.get('primary_genre', 'General')} | {story.get('geography', 'National')}</span>
                         <h3>{story.get('headline_en', 'Untitled Report')}</h3>
+                        {en_html}
+                        {bn_html}
+                        {links_html}
+                    </div>
                     """,
                     unsafe_allow_html=True,
                 )
-                if lang_choice in ("English", "Bilingual (English + বাংলা)"):
-                    st.markdown(
-                        f"<p><strong>What Happened:</strong> {summary_en.get('what_happened', '—')}</p>"
-                        f"<p><strong>Key Details:</strong> {summary_en.get('key_details', '—')}</p>",
-                        unsafe_allow_html=True,
-                    )
-                if lang_choice in ("Bengali (বাংলা)", "Bilingual (English + বাংলা)") and summary_bn:
-                    st.markdown(
-                        f"<p><strong>সারসংক্ষেপ:</strong> {summary_bn.get('what_happened', '—')}</p>",
-                        unsafe_allow_html=True,
-                    )
-                st.markdown("</div>", unsafe_allow_html=True)
 
                 if st.button("Bookmark Story", key=f"bm_{s_id}"):
                     try:
