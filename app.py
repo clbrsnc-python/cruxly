@@ -1,7 +1,8 @@
 import base64
 import hashlib
+from urllib.parse import quote
 import streamlit as st
-from supabase import create_client, Client, ClientOptions
+from supabase import create_client, Client
 
 # ---------------------------------------------------------
 # 1. PAGE CONFIG & GLOBAL VISUAL THEME (Times New Roman)
@@ -193,49 +194,22 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 2. DETERMINISTIC PKCE STORAGE & SUPABASE CLIENT
+# 2. RFC-7636 PKCE PAIR & SUPABASE CLIENT
 # ---------------------------------------------------------
-class FixedVerifierStorage:
-    """Ensures gotrue-py always uses the exact same PKCE code_verifier across tabs/reruns."""
-
-    def __init__(self, fixed_verifier: str):
-        self._store: dict[str, str] = {}
-        self._fixed_verifier = fixed_verifier
-
-    def get_item(self, key: str) -> str | None:
-        if "code-verifier" in key:
-            return self._fixed_verifier
-        return self._store.get(key)
-
-    def set_item(self, key: str, value: str) -> None:
-        if "code-verifier" in key:
-            self._store[key] = self._fixed_verifier
-        else:
-            self._store[key] = value
-
-    def remove_item(self, key: str) -> None:
-        self._store.pop(key, None)
-
-
-def get_fixed_verifier() -> str:
+def get_pkce_pair() -> tuple[str, str]:
+    """Returns a deterministic (code_verifier, S256_code_challenge) pair that survives new-tab OAuth redirects."""
     seed = f"{st.secrets['SUPABASE_URL']}:{st.secrets['SUPABASE_ANON_KEY']}"
-    return hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    code_verifier = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return code_verifier, code_challenge
 
 
 def get_supabase() -> Client:
     if "sb_client" not in st.session_state:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_ANON_KEY"]
-        verifier = get_fixed_verifier()
-        storage = FixedVerifierStorage(verifier)
-        client = create_client(
-            url,
-            key,
-            options=ClientOptions(flow_type="pkce", storage=storage),
-        )
-        # Override gotrue's internal _storage directly so sign_in_with_oauth uses our verifier
-        client.auth._storage = storage
-        st.session_state["sb_client"] = client
+        st.session_state["sb_client"] = create_client(url, key)
     return st.session_state["sb_client"]
 
 
@@ -324,14 +298,15 @@ if active_page == "terms":
     st.stop()
 
 # ---------------------------------------------------------
-# 4. OAUTH CALLBACK HANDLER (PKCE ?code=... Exchange)
+# 4. OAUTH CALLBACK HANDLER (Direct RFC-7636 PKCE Exchange)
 # ---------------------------------------------------------
 if "code" in query_params and "sb_session" not in st.session_state:
     try:
+        code_verifier, _ = get_pkce_pair()
         auth_response = supabase.auth.exchange_code_for_session(
             {
                 "auth_code": query_params["code"],
-                "code_verifier": get_fixed_verifier(),
+                "code_verifier": code_verifier,
             }
         )
         if auth_response and auth_response.session:
@@ -358,20 +333,16 @@ if "sb_session" in st.session_state:
 # 5. PUBLIC HOMEPAGE / LOGIN GATE (DPR v1.1 Sections 1, 2, 8, 11)
 # ---------------------------------------------------------
 if not user:
-    oauth_url = None
-    oauth_err = None
-    try:
-        redirect_url = st.secrets.get("APP_REDIRECT_URL", "https://cruxly.streamlit.app")
-        res = supabase.auth.sign_in_with_oauth(
-            {
-                "provider": "google",
-                "options": {"redirect_to": redirect_url},
-            }
-        )
-        if res and res.url:
-            oauth_url = res.url
-    except Exception as exc:
-        oauth_err = str(exc)
+    _, code_challenge = get_pkce_pair()
+    base_url = st.secrets["SUPABASE_URL"].rstrip("/")
+    redirect_url = st.secrets.get("APP_REDIRECT_URL", "https://cruxly.streamlit.app")
+    oauth_url = (
+        f"{base_url}/auth/v1/authorize"
+        f"?provider=google"
+        f"&redirect_to={quote(redirect_url, safe='')}"
+        f"&code_challenge={code_challenge}"
+        f"&code_challenge_method=S256"
+    )
 
     st.markdown(
         f'<div class="hero-wrapper">'
@@ -384,10 +355,7 @@ if not user:
         unsafe_allow_html=True,
     )
 
-    if oauth_url:
-        st.link_button("Sign in with Google", url=oauth_url)
-    else:
-        st.error(f"Google Sign-In could not be initialized ({oauth_err or 'missing OAuth URL'}). Please check Streamlit Secrets.")
+    st.link_button("Sign in with Google", url=oauth_url)
 
     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
