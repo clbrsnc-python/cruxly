@@ -53,7 +53,7 @@ def fetch_rss_items(max_per_feed: int = 8) -> list[dict]:
     return collected
 
 
-def cluster_items(items: list[dict], max_clusters: int = 8) -> list[list[dict]]:
+def cluster_items(items: list[dict], max_clusters: int = 25) -> list[list[dict]]:
     """Groups articles covering the same event across distinct newspapers by keyword overlap."""
     clusters: list[list[dict]] = []
     stop_words = {
@@ -181,12 +181,12 @@ def run_ingestion_cycle(
     groq_api_key: str | None = None,
 ) -> dict:
     """Executes one full collect -> cluster -> synthesize -> publish cycle."""
-    raw_items = fetch_rss_items(max_per_feed=6)
+    raw_items = fetch_rss_items(max_per_feed=20)
     fetched_count = len(raw_items)
     if not raw_items:
         return {"fetched": 0, "published": 0, "message": "No RSS entries reachable right now."}
 
-    clusters = cluster_items(raw_items, max_clusters=8)
+    clusters = cluster_items(raw_items, max_clusters=25)
     published_count = 0
     errors: list[str] = []
     now_ist_iso = datetime.now(IST).isoformat()
@@ -213,9 +213,9 @@ def run_ingestion_cycle(
                 refs = [
                     {
                         "story_id": story_id,
-                        "publisher_name": item["source_name"],
+                        "source_name": item["source_name"],
                         "article_url": item["url"],
-                        "language": item["language"],
+                        "hindi_original_headline": item["title"] if item["language"] == "hi" else None,
                     }
                     for item in cluster
                 ]
@@ -238,16 +238,6 @@ def run_ingestion_cycle(
             "published": 0,
             "message": f"Fetched {fetched_count} RSS items, but insert failed: {errors[0]}",
         }
-
-    return {
-        "fetched": fetched_count,
-        "published": published_count,
-        "message": f"Fetched {fetched_count} RSS items and published {published_count} consolidated briefings.",
-    }
-
-    # Explicitly discard temporary source text immediately after processing
-    raw_items.clear()
-    clusters.clear()
 
     return {
         "fetched": fetched_count,
