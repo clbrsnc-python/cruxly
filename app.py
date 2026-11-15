@@ -1,7 +1,8 @@
 import base64
+import hashlib
 import streamlit as st
-import streamlit.components.v1 as components
 from supabase import create_client, Client, ClientOptions
+from supabase.lib.client_options import SyncSupportedStorage
 
 # ---------------------------------------------------------
 # 1. PAGE CONFIG & GLOBAL VISUAL THEME (Times New Roman)
@@ -193,16 +194,40 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 2. PER-SESSION SUPABASE CLIENT (Implicit Flow for OAuth)
+# 2. CROSS-TAB PKCE STORAGE & SUPABASE CLIENT
 # ---------------------------------------------------------
+class DeterministicPKCEStorage(SyncSupportedStorage):
+    """Preserves PKCE code_verifier across new-tab OAuth redirects in Streamlit Cloud."""
+
+    def __init__(self, seed: str):
+        self._store: dict[str, str] = {}
+        # 64-char URL-safe deterministic verifier for PKCE code exchange
+        self._fixed_verifier = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+
+    def get_item(self, key: str) -> str | None:
+        if key.endswith("-code-verifier"):
+            return self._store.get(key) or self._fixed_verifier
+        return self._store.get(key)
+
+    def set_item(self, key: str, value: str) -> None:
+        if key.endswith("-code-verifier"):
+            self._store[key] = self._fixed_verifier
+        else:
+            self._store[key] = value
+
+    def remove_item(self, key: str) -> None:
+        self._store.pop(key, None)
+
+
 def get_supabase() -> Client:
     if "sb_client" not in st.session_state:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_ANON_KEY"]
+        storage = DeterministicPKCEStorage(seed=f"{url}:{key}")
         st.session_state["sb_client"] = create_client(
             url,
             key,
-            options=ClientOptions(flow_type="implicit"),
+            options=ClientOptions(flow_type="pkce", storage=storage),
         )
     return st.session_state["sb_client"]
 
@@ -214,37 +239,7 @@ except Exception:
     st.stop()
 
 # ---------------------------------------------------------
-# 3. BRIDGE URL HASH TOKENS (#access_token=...) TO QUERY PARAMS
-# ---------------------------------------------------------
-components.html(
-    """
-    <script>
-    (function() {
-        try {
-            const targetWin = window.parent || window;
-            const hash = targetWin.location.hash;
-            if (hash && hash.includes('access_token=')) {
-                const params = new URLSearchParams(hash.substring(1));
-                const accessToken = params.get('access_token');
-                const refreshToken = params.get('refresh_token');
-                if (accessToken && refreshToken) {
-                    const url = new URL(targetWin.location.href);
-                    url.hash = '';
-                    url.searchParams.set('access_token', accessToken);
-                    url.searchParams.set('refresh_token', refreshToken);
-                    targetWin.location.replace(url.toString());
-                }
-            }
-        } catch (e) {}
-    })();
-    </script>
-    """,
-    height=0,
-    width=0,
-)
-
-# ---------------------------------------------------------
-# 4. PUBLIC LEGAL & POLICY PAGES (?page=privacy / ?page=terms)
+# 3. PUBLIC LEGAL & POLICY PAGES (?page=privacy / ?page=terms)
 # ---------------------------------------------------------
 query_params = st.query_params
 active_page = query_params.get("page")
@@ -322,31 +317,18 @@ if active_page == "terms":
     st.stop()
 
 # ---------------------------------------------------------
-# 5. OAUTH CALLBACK HANDLER (Implicit Tokens OR PKCE Code)
+# 4. OAUTH CALLBACK HANDLER (PKCE ?code=... Exchange)
 # ---------------------------------------------------------
-if "access_token" in query_params and "refresh_token" in query_params:
-    try:
-        auth_response = supabase.auth.set_session(
-            query_params["access_token"],
-            query_params["refresh_token"],
-        )
-        if auth_response and auth_response.session:
-            st.session_state["sb_session"] = auth_response.session
-        st.query_params.clear()
-        st.rerun()
-    except Exception:
-        st.query_params.clear()
-        st.warning("Your sign-in session could not be verified. Please try signing in with Google again.")
-elif "code" in query_params:
+if "code" in query_params and "sb_session" not in st.session_state:
     try:
         auth_response = supabase.auth.exchange_code_for_session({"auth_code": query_params["code"]})
         if auth_response and auth_response.session:
             st.session_state["sb_session"] = auth_response.session
+            st.query_params.clear()
+            st.rerun()
+    except Exception as auth_exc:
         st.query_params.clear()
-        st.rerun()
-    except Exception:
-        st.query_params.clear()
-        st.warning("Your sign-in session could not be verified. Please try signing in with Google again.")
+        st.error(f"Sign-in verification error: {auth_exc}")
 
 # Restore active session if present
 user = None
@@ -361,7 +343,7 @@ if "sb_session" in st.session_state:
         st.session_state.pop("sb_session", None)
 
 # ---------------------------------------------------------
-# 6. PUBLIC HOMEPAGE / LOGIN GATE (DPR v1.1 Sections 1, 2, 8, 11)
+# 5. PUBLIC HOMEPAGE / LOGIN GATE (DPR v1.1 Sections 1, 2, 8, 11)
 # ---------------------------------------------------------
 if not user:
     oauth_url = None
@@ -487,7 +469,7 @@ if not user:
 
 else:
     # ---------------------------------------------------------
-    # 7. SIGNED-IN READER & ADMIN PORTAL
+    # 6. SIGNED-IN READER & ADMIN PORTAL
     # ---------------------------------------------------------
     st.markdown(
         f'<div class="hero-wrapper">'
