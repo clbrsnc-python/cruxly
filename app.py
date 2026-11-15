@@ -1,6 +1,7 @@
 import base64
 import streamlit as st
-from supabase import create_client, Client
+import streamlit.components.v1 as components
+from supabase import create_client, Client, ClientOptions
 
 # ---------------------------------------------------------
 # 1. PAGE CONFIG & GLOBAL VISUAL THEME (Times New Roman)
@@ -120,6 +121,7 @@ st.markdown(
     .nav-archive { background-color: #7B2CBF; }
     .nav-saved { background-color: #2D6A4F; }
     .nav-prefs { background-color: #B5651D; }
+    .nav-admin { background-color: #8B1E3F; }
 
     /* White News & Information Cards with Blue Border */
     .cruxly-card {
@@ -191,13 +193,18 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 2. SUPABASE CLIENT INITIALIZATION
+# 2. PER-SESSION SUPABASE CLIENT (Implicit Flow for OAuth)
 # ---------------------------------------------------------
-@st.cache_resource
 def get_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_ANON_KEY"]
-    return create_client(url, key)
+    if "sb_client" not in st.session_state:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_ANON_KEY"]
+        st.session_state["sb_client"] = create_client(
+            url,
+            key,
+            options=ClientOptions(flow_type="implicit"),
+        )
+    return st.session_state["sb_client"]
 
 
 try:
@@ -207,7 +214,37 @@ except Exception:
     st.stop()
 
 # ---------------------------------------------------------
-# 3. PUBLIC LEGAL & POLICY PAGES (?page=privacy / ?page=terms)
+# 3. BRIDGE URL HASH TOKENS (#access_token=...) TO QUERY PARAMS
+# ---------------------------------------------------------
+components.html(
+    """
+    <script>
+    (function() {
+        try {
+            const targetWin = window.parent || window;
+            const hash = targetWin.location.hash;
+            if (hash && hash.includes('access_token=')) {
+                const params = new URLSearchParams(hash.substring(1));
+                const accessToken = params.get('access_token');
+                const refreshToken = params.get('refresh_token');
+                if (accessToken && refreshToken) {
+                    const url = new URL(targetWin.location.href);
+                    url.hash = '';
+                    url.searchParams.set('access_token', accessToken);
+                    url.searchParams.set('refresh_token', refreshToken);
+                    targetWin.location.replace(url.toString());
+                }
+            }
+        } catch (e) {}
+    })();
+    </script>
+    """,
+    height=0,
+    width=0,
+)
+
+# ---------------------------------------------------------
+# 4. PUBLIC LEGAL & POLICY PAGES (?page=privacy / ?page=terms)
 # ---------------------------------------------------------
 query_params = st.query_params
 active_page = query_params.get("page")
@@ -285,9 +322,22 @@ if active_page == "terms":
     st.stop()
 
 # ---------------------------------------------------------
-# 4. OAUTH CALLBACK HANDLER (PKCE / CODE EXCHANGE)
+# 5. OAUTH CALLBACK HANDLER (Implicit Tokens OR PKCE Code)
 # ---------------------------------------------------------
-if "code" in query_params:
+if "access_token" in query_params and "refresh_token" in query_params:
+    try:
+        auth_response = supabase.auth.set_session(
+            query_params["access_token"],
+            query_params["refresh_token"],
+        )
+        if auth_response and auth_response.session:
+            st.session_state["sb_session"] = auth_response.session
+        st.query_params.clear()
+        st.rerun()
+    except Exception:
+        st.query_params.clear()
+        st.warning("Your sign-in session could not be verified. Please try signing in with Google again.")
+elif "code" in query_params:
     try:
         auth_response = supabase.auth.exchange_code_for_session({"auth_code": query_params["code"]})
         if auth_response and auth_response.session:
@@ -311,7 +361,7 @@ if "sb_session" in st.session_state:
         st.session_state.pop("sb_session", None)
 
 # ---------------------------------------------------------
-# 5. PUBLIC HOMEPAGE / LOGIN GATE (DPR v1.1 Sections 1, 2, 8, 11)
+# 6. PUBLIC HOMEPAGE / LOGIN GATE (DPR v1.1 Sections 1, 2, 8, 11)
 # ---------------------------------------------------------
 if not user:
     oauth_url = None
@@ -329,7 +379,6 @@ if not user:
     except Exception as exc:
         oauth_err = str(exc)
 
-    # Flush Hero Header
     st.markdown(
         f'<div class="hero-wrapper">'
         f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
@@ -341,7 +390,6 @@ if not user:
         unsafe_allow_html=True,
     )
 
-    # Native Streamlit Link Button (opens Google OAuth cleanly outside sandboxed iframe)
     if oauth_url:
         st.link_button("Sign in with Google", url=oauth_url)
     else:
@@ -349,7 +397,6 @@ if not user:
 
     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-    # DPR Section 1, 2 & 11: Core Promise, Access Policy & Copyright Transparency on Homepage
     col_about, col_access, col_legal = st.columns(3)
     with col_about:
         st.markdown(
@@ -385,7 +432,6 @@ if not user:
             unsafe_allow_html=True,
         )
 
-    # DPR Section 2: Public Homepage Shared Headlines & Short Original Abridged Previews
     st.markdown("### Public Headline Previews")
     try:
         preview_res = (
@@ -427,7 +473,6 @@ if not user:
             unsafe_allow_html=True,
         )
 
-    # DPR Section 11 & 8: Discreet Footer with About/Terms, Privacy Policy & Original Edition Note
     st.markdown(
         """
         <div class="cruxly-footer">
@@ -441,7 +486,9 @@ if not user:
     )
 
 else:
-    # Signed-In Header
+    # ---------------------------------------------------------
+    # 7. SIGNED-IN READER & ADMIN PORTAL
+    # ---------------------------------------------------------
     st.markdown(
         f'<div class="hero-wrapper">'
         f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
@@ -461,17 +508,22 @@ else:
             except Exception:
                 pass
             st.session_state.pop("sb_session", None)
+            st.session_state.pop("sb_client", None)
             st.rerun()
 
     # Fetch user profile & approval status
+    profile = None
+    profile_err = None
     try:
-        profile_res = supabase.table("users").select("*").eq("id", user.id).single().execute()
+        profile_res = supabase.table("users").select("*").eq("id", user.id).maybe_single().execute()
         profile = profile_res.data
-    except Exception:
-        profile = None
+    except Exception as exc:
+        profile_err = str(exc)
 
     if not profile:
         st.warning("Your profile is being initialized. Please click Refresh below.")
+        if profile_err:
+            st.caption(f"Diagnostic detail: {profile_err}")
         if st.button("Refresh Profile"):
             st.rerun()
     elif profile.get("account_status") == "pending":
@@ -490,6 +542,9 @@ else:
     elif profile.get("account_status") == "rejected":
         st.error("Your access request was not approved by the administrator.")
     else:
+        user_roles = profile.get("roles") or []
+        is_admin = bool(set(user_roles) & {"super_admin", "user_admin"})
+
         st.markdown(
             """
             <div class="static-nav">
@@ -506,6 +561,53 @@ else:
             """,
             unsafe_allow_html=True,
         )
+
+        # DPR v1.1 Section 9: User Management Admin Panel (Approve / Reject with System Audit Trail)
+        if is_admin:
+            st.markdown("### Administrator Console — Reader Access Governance")
+            try:
+                all_users_res = (
+                    supabase.table("users")
+                    .select("id, full_name, email, account_status, roles, approved_by, approved_at, rejection_reason")
+                    .order("email")
+                    .execute()
+                )
+                all_users = all_users_res.data or []
+            except Exception as admin_exc:
+                all_users = []
+                st.error(f"Could not load user directory: {admin_exc}")
+
+            for u_row in all_users:
+                u_id = u_row["id"]
+                u_status = u_row.get("account_status", "pending")
+                u_roles = ", ".join(u_row.get("roles") or ["app_user"])
+                st.markdown(
+                    f"""
+                    <div class="cruxly-card">
+                        <span class="badge-tag">Status: {u_status.upper()} | Roles: {u_roles}</span>
+                        <h3>{u_row.get('full_name') or 'Reader'} ({u_row.get('email')})</h3>
+                        <p style="font-size: 0.92rem; color: #1B4965;">
+                            Approved/Reviewed At: {u_row.get('approved_at') or '—'} |
+                            Approved By ID: {u_row.get('approved_by') or '—'}
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if u_id != user.id:
+                    c1, c2, c3 = st.columns([1, 1, 3])
+                    with c1:
+                        if u_status != "approved" and st.button("Approve", key=f"app_{u_id}"):
+                            supabase.table("users").update(
+                                {"account_status": "approved", "rejection_reason": None}
+                            ).eq("id", u_id).execute()
+                            st.rerun()
+                    with c2:
+                        if u_status != "rejected" and st.button("Reject", key=f"rej_{u_id}"):
+                            supabase.table("users").update(
+                                {"account_status": "rejected"}
+                            ).eq("id", u_id).execute()
+                            st.rerun()
 
     st.markdown(
         """
