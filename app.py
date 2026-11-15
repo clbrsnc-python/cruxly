@@ -1,5 +1,4 @@
 import base64
-from urllib.parse import quote
 import streamlit as st
 from supabase import create_client, Client
 
@@ -21,17 +20,6 @@ def get_base64_image(image_path: str) -> str:
 
 logo_b64 = get_base64_image("cruxly_logo.jpg")
 
-# Single-line SVG data URI so Streamlit Markdown never breaks HTML tags
-GOOGLE_ICON_SVG = (
-    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48">'
-    '<path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>'
-    '<path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>'
-    '<path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>'
-    '<path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>'
-    '</svg>'
-)
-GOOGLE_ICON_URI = f"data:image/svg+xml;utf8,{quote(GOOGLE_ICON_SVG)}"
-
 st.markdown(
     """
     <style>
@@ -52,7 +40,7 @@ st.markdown(
         align-items: stretch;
         width: 100%;
         height: 240px;
-        margin-bottom: 22px;
+        margin-bottom: 14px;
         border-radius: 12px;
         overflow: hidden;
         border: 2px solid #D4AF37;
@@ -79,31 +67,34 @@ st.markdown(
         color: #E5C158;
         font-size: 2.05rem;
         font-weight: bold;
-        margin: 0 0 18px 0;
+        margin: 0 0 10px 0;
         line-height: 1.25;
     }
-
-    /* Official Multicolor Google Sign-In Button */
-    a.google-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 12px;
-        background-color: #FFFFFF;
-        color: #1F1F1F !important;
-        text-decoration: none !important;
-        font-family: "Times New Roman", Times, serif !important;
-        font-weight: bold;
+    .hero-subtext {
+        color: #F8E7B4;
         font-size: 1.1rem;
-        padding: 10px 22px;
-        border-radius: 6px;
-        border: 2px solid #D4AF37;
-        width: fit-content;
+        margin: 0;
+    }
+
+    /* High-Contrast Native Streamlit Buttons & Link Buttons */
+    div.stButton > button,
+    div[data-testid="stLinkButton"] > a {
+        background-color: #0B2545 !important;
+        color: #FFFFFF !important;
+        border: 2px solid #D4AF37 !important;
+        font-family: "Times New Roman", Times, serif !important;
+        font-weight: bold !important;
+        font-size: 1.05rem !important;
+        border-radius: 6px !important;
+        padding: 0.5rem 1.4rem !important;
         transition: none !important;
         animation: none !important;
+        text-decoration: none !important;
     }
-    a.google-btn:hover {
-        background-color: #F8F9FA;
-        color: #000000 !important;
+    div.stButton > button:hover,
+    div[data-testid="stLinkButton"] > a:hover {
+        background-color: #1B4965 !important;
+        color: #E5C158 !important;
     }
 
     /* Static Vibrant Menu Bar (Zero Animation - DPR v1.1 Section 8) */
@@ -161,19 +152,6 @@ st.markdown(
         font-size: 0.85rem;
         font-weight: bold;
         margin-bottom: 8px;
-    }
-
-    /* High-Contrast Logout Button Styling */
-    div.stButton > button {
-        background-color: #0B2545 !important;
-        color: #FFFFFF !important;
-        border: 2px solid #D4AF37 !important;
-        font-family: "Times New Roman", Times, serif !important;
-        font-weight: bold !important;
-        font-size: 1rem !important;
-        border-radius: 6px !important;
-        padding: 0.45rem 1.2rem !important;
-        transition: none !important;
     }
 
     /* Discreet Footer Note (DPR v1.1 Section 8 & 11) */
@@ -240,14 +218,15 @@ if active_page == "privacy":
         f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
         f'<div class="hero-banner-content">'
         f'<div class="hero-welcome">Cruxly — Privacy Policy &amp; Data Protection</div>'
-        f'<a href="?" target="_top" class="google-btn"><span>← Back to Cruxly Home</span></a>'
+        f'<p class="hero-subtext">Transparency on Google account sign-in and reader data storage.</p>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
+    st.link_button("← Back to Cruxly Home", url="?")
     st.markdown(
         """
-        <div class="cruxly-card">
+        <div class="cruxly-card" style="margin-top: 14px;">
             <h3>1. Purpose of Cruxly</h3>
             <p><strong>Cruxly</strong> (<em>Read deeper. Faster.</em>) is a personalised news intelligence platform that collects and cross-verifies public reports from selected English, Bengali, and Hindi newspapers to deliver original consolidated abridged summaries in English and Bengali with direct links to original reporting.</p>
             <h3>2. Google Account Information Collected</h3>
@@ -276,17 +255,18 @@ if active_page == "terms":
         f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
         f'<div class="hero-banner-content">'
         f'<div class="hero-welcome">Cruxly — Copyright, Publisher Attribution &amp; Terms of Use</div>'
-        f'<a href="?" target="_top" class="google-btn"><span>← Back to Cruxly Home</span></a>'
+        f'<p class="hero-subtext">Editorial safeguards, fair-dealing attribution, and original journalism support.</p>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
+    st.link_button("← Back to Cruxly Home", url="?")
     st.markdown(
         """
-        <div class="cruxly-card">
+        <div class="cruxly-card" style="margin-top: 14px;">
             <h3>1. Copyright &amp; Fair-Dealing Compliance</h3>
             <ul>
-                <li><strong>Original Abridged Summaries Only:</strong> Cruxly creates original, independent consolidated summaries and original translations in English and Bengali. Cruxly never republishes full newspaper articles, e-paper PDFs, or substantial verbatim excerpts.</li>
+                <li><strong>Original Abridged Summaries Only:</strong> Cruxly creates original, independent consolidated summaries and original translations in English and Bengali. Cruxly never republishes full newspaper articles, e-papers, or substantial verbatim excerpts.</li>
                 <li><strong>Direct Publisher Attribution:</strong> Every consolidated report provides direct links and clear attribution to the original reporting newspapers so readers can read full articles on the publishers' official websites.</li>
                 <li><strong>Image Policy:</strong> Unauthorised newspaper photographs are never reproduced. Images are displayed only when rights-cleared or properly licensed.</li>
                 <li><strong>Temporary Source Text Removal:</strong> Any temporary extracted source text used for cross-verification is deleted immediately after processing and verification.</li>
@@ -334,7 +314,8 @@ if "sb_session" in st.session_state:
 # 5. PUBLIC HOMEPAGE / LOGIN GATE (DPR v1.1 Sections 1, 2, 8, 11)
 # ---------------------------------------------------------
 if not user:
-    oauth_url = "#"
+    oauth_url = None
+    oauth_err = None
     try:
         redirect_url = st.secrets.get("APP_REDIRECT_URL", "https://cruxly.streamlit.app")
         res = supabase.auth.sign_in_with_oauth(
@@ -345,23 +326,28 @@ if not user:
         )
         if res and res.url:
             oauth_url = res.url
-    except Exception:
-        oauth_url = "#"
+    except Exception as exc:
+        oauth_err = str(exc)
 
-    # Flush Hero Header with target="_top"
+    # Flush Hero Header
     st.markdown(
         f'<div class="hero-wrapper">'
         f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
         f'<div class="hero-banner-content">'
         f'<div class="hero-welcome">Welcome to Cruxly — Intelligent News for Intelligent Readers.</div>'
-        f'<a href="{oauth_url}" target="_top" class="google-btn">'
-        f'<img src="{GOOGLE_ICON_URI}" width="20" height="20" alt="Google" />'
-        f'<span>Sign in with Google</span>'
-        f'</a>'
+        f'<p class="hero-subtext">Multi-source consolidated news intelligence in English &amp; Bengali.</p>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
+
+    # Native Streamlit Link Button (opens Google OAuth cleanly outside sandboxed iframe)
+    if oauth_url:
+        st.link_button("Sign in with Google", url=oauth_url)
+    else:
+        st.error(f"Google Sign-In could not be initialized ({oauth_err or 'missing OAuth URL'}). Please check Streamlit Secrets.")
+
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
     # DPR Section 1, 2 & 11: Core Promise, Access Policy & Copyright Transparency on Homepage
     col_about, col_access, col_legal = st.columns(3)
@@ -393,7 +379,7 @@ if not user:
             <div class="cruxly-card">
                 <h3>Copyright &amp; Publisher Attribution</h3>
                 <p><strong>Original Abridged Synthesis:</strong> Cruxly never reproduces full articles, e-papers, or unauthorised newspaper photos. Every report includes direct links to original publishers.</p>
-                <p>Read full policies under <a href="?page=terms" target="_top">Copyright &amp; Terms</a> and <a href="?page=privacy" target="_top">Privacy Policy</a>.</p>
+                <p>Read full policies under <a href="?page=terms">Copyright &amp; Terms</a> and <a href="?page=privacy">Privacy Policy</a>.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -447,8 +433,8 @@ if not user:
         <div class="cruxly-footer">
             <strong>Cruxly — Read deeper. Faster.</strong> | Original abridged synthesis with direct attribution to original publishers.
             Readers are encouraged to support journalism by purchasing original newspaper editions.<br/>
-            <a href="?page=terms" target="_top">Copyright, Attribution &amp; Terms</a> |
-            <a href="?page=privacy" target="_top">Privacy Policy</a>
+            <a href="?page=terms">Copyright, Attribution &amp; Terms</a> |
+            <a href="?page=privacy">Privacy Policy</a>
         </div>
         """,
         unsafe_allow_html=True,
@@ -461,7 +447,7 @@ else:
         f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
         f'<div class="hero-banner-content">'
         f'<div class="hero-welcome">Welcome to Cruxly — Intelligent News for Intelligent Readers.</div>'
-        f'<div style="color: #F8E7B4; font-size: 1.05rem;">Signed in as: <strong>{user.email}</strong></div>'
+        f'<p class="hero-subtext">Signed in as: <strong>{user.email}</strong></p>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
@@ -525,8 +511,8 @@ else:
         """
         <div class="cruxly-footer">
             <strong>Cruxly — Read deeper. Faster.</strong> | Readers are encouraged to support journalism by purchasing original newspaper editions.<br/>
-            <a href="?page=terms" target="_top">Copyright, Attribution &amp; Terms</a> |
-            <a href="?page=privacy" target="_top">Privacy Policy</a>
+            <a href="?page=terms">Copyright, Attribution &amp; Terms</a> |
+            <a href="?page=privacy">Privacy Policy</a>
         </div>
         """,
         unsafe_allow_html=True,
