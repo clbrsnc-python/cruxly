@@ -18,6 +18,13 @@ def _extract_actor_id(user_obj) -> str:
     return str(getattr(user_obj, "id", "") or "")
 
 
+def _format_roles(roles_val) -> str:
+    """Formats public.users.roles cleanly whether stored as a list/array or scalar string."""
+    if isinstance(roles_val, list):
+        return ", ".join(str(r) for r in roles_val) if roles_val else "reader"
+    return str(roles_val or "reader")
+
+
 def _log_admin_action(
     supabase: Client,
     actor_id: str,
@@ -76,7 +83,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
         try:
             users_res = (
                 supabase.table("users")
-                .select("id, full_name, email, role, account_status, created_at")
+                .select("id, full_name, email, roles, account_status, created_at")
                 .order("created_at", desc=True)
                 .execute()
             )
@@ -92,46 +99,53 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
         else:
             for u in pending:
                 uid = u["id"]
+                role_label = _format_roles(u.get("roles"))
                 st.markdown(
                     f'<div class="cruxly-card">'
                     f'<h3>{u.get("full_name") or "Applicant"}</h3>'
-                    f'<p><strong>Email:</strong> {u.get("email")} | <strong>Role:</strong> {u.get("role")}</p>'
+                    f'<p><strong>Email:</strong> {u.get("email")} | <strong>Roles:</strong> {role_label}</p>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("Approve Reader", key=f"app_{uid}"):
-                        supabase.table("users").update({"account_status": "approved"}).eq("id", uid).execute()
-                        _log_admin_action(
-                            supabase,
-                            actor_id,
-                            "USER_APPROVAL",
-                            "Approved reader account",
-                            "users",
-                            u.get("email", uid),
-                            target_id=uid,
-                            before_state={"account_status": "pending"},
-                            after_state={"account_status": "approved"},
-                        )
-                        st.success(f"Approved {u.get('email')}.")
-                        st.rerun()
+                        try:
+                            supabase.table("users").update({"account_status": "approved"}).eq("id", uid).execute()
+                            _log_admin_action(
+                                supabase,
+                                actor_id,
+                                "USER_APPROVAL",
+                                "Approved reader account",
+                                "users",
+                                u.get("email", uid),
+                                target_id=uid,
+                                before_state={"account_status": "pending"},
+                                after_state={"account_status": "approved"},
+                            )
+                            st.success(f"Approved {u.get('email')}.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Approval failed: {exc}")
                 with c2:
                     if st.button("Reject Application", key=f"rej_{uid}"):
-                        supabase.table("users").update({"account_status": "rejected"}).eq("id", uid).execute()
-                        _log_admin_action(
-                            supabase,
-                            actor_id,
-                            "USER_REJECTION",
-                            "Rejected reader account",
-                            "users",
-                            u.get("email", uid),
-                            target_id=uid,
-                            before_state={"account_status": "pending"},
-                            after_state={"account_status": "rejected"},
-                        )
-                        st.warning(f"Rejected {u.get('email')}.")
-                        st.rerun()
+                        try:
+                            supabase.table("users").update({"account_status": "rejected"}).eq("id", uid).execute()
+                            _log_admin_action(
+                                supabase,
+                                actor_id,
+                                "USER_REJECTION",
+                                "Rejected reader account",
+                                "users",
+                                u.get("email", uid),
+                                target_id=uid,
+                                before_state={"account_status": "pending"},
+                                after_state={"account_status": "rejected"},
+                            )
+                            st.warning(f"Rejected {u.get('email')}.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Rejection failed: {exc}")
 
     # 2. NEWS INGESTION CONTROL (LIVE, MORNING, EVENING, EXHAUSTIVE BACKFILL)
     with tab_ingest:
@@ -222,37 +236,46 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                     {"name_en": g["name_en"], "name_bn": g["name_bn"], "is_active": True}
                     for g in DEFAULT_DPR_GENRES
                 ]
-                supabase.table("genres").insert(seed_rows).execute()
-                _log_admin_action(
-                    supabase,
-                    actor_id,
-                    "GENRE_SEED",
-                    "Seeded 12 official DPR genres",
-                    "genres",
-                    "default_12_genres",
-                )
-                st.success("Seeded all 12 approved DPR genres.")
-                st.rerun()
+                try:
+                    supabase.table("genres").upsert(seed_rows, on_conflict="name_en").execute()
+                    _log_admin_action(
+                        supabase,
+                        actor_id,
+                        "GENRE_SEED",
+                        "Seeded 12 official DPR genres",
+                        "genres",
+                        "default_12_genres",
+                    )
+                    st.success("Seeded all 12 approved DPR genres.")
+                    st.rerun()
+                except Exception as seed_exc:
+                    st.error(
+                        f"Could not seed genres into public.genres ({seed_exc}). "
+                        "Ensure the RLS policy on public.genres grants INSERT/UPDATE to admin/super_admin."
+                    )
 
         with st.expander("Add New Approved Genre"):
             new_en = st.text_input("Genre Name (English)", key="new_genre_en")
             new_bn = st.text_input("Genre Name (Bengali / বাংলা)", key="new_genre_bn")
             if st.button("Create Genre", key="create_genre_btn"):
                 if new_en.strip() and new_bn.strip():
-                    supabase.table("genres").insert(
-                        {"name_en": new_en.strip(), "name_bn": new_bn.strip(), "is_active": True}
-                    ).execute()
-                    _log_admin_action(
-                        supabase,
-                        actor_id,
-                        "GENRE_CREATE",
-                        f"Added genre {new_en.strip()}",
-                        "genres",
-                        new_en.strip(),
-                        after_state={"name_en": new_en.strip(), "name_bn": new_bn.strip()},
-                    )
-                    st.success(f"Added '{new_en.strip()}'.")
-                    st.rerun()
+                    try:
+                        supabase.table("genres").insert(
+                            {"name_en": new_en.strip(), "name_bn": new_bn.strip(), "is_active": True}
+                        ).execute()
+                        _log_admin_action(
+                            supabase,
+                            actor_id,
+                            "GENRE_CREATE",
+                            f"Added genre {new_en.strip()}",
+                            "genres",
+                            new_en.strip(),
+                            after_state={"name_en": new_en.strip(), "name_bn": new_bn.strip()},
+                        )
+                        st.success(f"Added '{new_en.strip()}'.")
+                        st.rerun()
+                    except Exception as create_exc:
+                        st.error(f"Could not create genre: {create_exc}")
                 else:
                     st.warning("Please enter both English and Bengali genre names.")
 
@@ -277,20 +300,23 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                     )
                 with col3:
                     if st.button("Reassign & Delete", key=f"del_genre_{gid}"):
-                        supabase.table("stories").update({"primary_genre": target_genre}).eq("primary_genre", g_en).execute()
-                        supabase.table("genres").delete().eq("id", gid).execute()
-                        _log_admin_action(
-                            supabase,
-                            actor_id,
-                            "GENRE_DELETE",
-                            f"Reassigned '{g_en}' to '{target_genre}' and deleted genre",
-                            "genres",
-                            g_en,
-                            before_state={"deleted_genre": g_en},
-                            after_state={"reassigned_to": target_genre},
-                        )
-                        st.success(f"Reassigned stories to '{target_genre}' and deleted '{g_en}'.")
-                        st.rerun()
+                        try:
+                            supabase.table("stories").update({"primary_genre": target_genre}).eq("primary_genre", g_en).execute()
+                            supabase.table("genres").delete().eq("id", gid).execute()
+                            _log_admin_action(
+                                supabase,
+                                actor_id,
+                                "GENRE_DELETE",
+                                f"Reassigned '{g_en}' to '{target_genre}' and deleted genre",
+                                "genres",
+                                g_en,
+                                before_state={"deleted_genre": g_en},
+                                after_state={"reassigned_to": target_genre},
+                            )
+                            st.success(f"Reassigned stories to '{target_genre}' and deleted '{g_en}'.")
+                            st.rerun()
+                        except Exception as del_exc:
+                            st.error(f"Could not delete genre: {del_exc}")
 
     # 4. STORY & SENSITIVE NEWS MODERATION
     with tab_stories:
@@ -329,49 +355,58 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                 sc1, sc2, sc3 = st.columns(3)
                 with sc1:
                     if cur_status != "published" and st.button("Approve & Publish", key=f"pub_{sid}"):
-                        supabase.table("stories").update({"status": "published"}).eq("id", sid).execute()
-                        _log_admin_action(
-                            supabase,
-                            actor_id,
-                            "STORY_PUBLISH",
-                            "Published story",
-                            "stories",
-                            st_row.get("headline_en", sid)[:80],
-                            target_id=sid,
-                            before_state={"status": cur_status},
-                            after_state={"status": "published"},
-                        )
-                        st.rerun()
+                        try:
+                            supabase.table("stories").update({"status": "published"}).eq("id", sid).execute()
+                            _log_admin_action(
+                                supabase,
+                                actor_id,
+                                "STORY_PUBLISH",
+                                "Published story",
+                                "stories",
+                                st_row.get("headline_en", sid)[:80],
+                                target_id=sid,
+                                before_state={"status": cur_status},
+                                after_state={"status": "published"},
+                            )
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Update failed: {exc}")
                 with sc2:
                     if cur_status != "flagged_review" and st.button("Flag for Review", key=f"flg_{sid}"):
-                        supabase.table("stories").update({"status": "flagged_review"}).eq("id", sid).execute()
-                        _log_admin_action(
-                            supabase,
-                            actor_id,
-                            "STORY_FLAG",
-                            "Flagged story for review",
-                            "stories",
-                            st_row.get("headline_en", sid)[:80],
-                            target_id=sid,
-                            before_state={"status": cur_status},
-                            after_state={"status": "flagged_review"},
-                        )
-                        st.rerun()
+                        try:
+                            supabase.table("stories").update({"status": "flagged_review"}).eq("id", sid).execute()
+                            _log_admin_action(
+                                supabase,
+                                actor_id,
+                                "STORY_FLAG",
+                                "Flagged story for review",
+                                "stories",
+                                st_row.get("headline_en", sid)[:80],
+                                target_id=sid,
+                                before_state={"status": cur_status},
+                                after_state={"status": "flagged_review"},
+                            )
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Update failed: {exc}")
                 with sc3:
                     if cur_status != "withheld_sensitive" and st.button("Withhold (Sensitive)", key=f"wh_{sid}"):
-                        supabase.table("stories").update({"status": "withheld_sensitive"}).eq("id", sid).execute()
-                        _log_admin_action(
-                            supabase,
-                            actor_id,
-                            "STORY_WITHHOLD",
-                            "Withheld sensitive story",
-                            "stories",
-                            st_row.get("headline_en", sid)[:80],
-                            target_id=sid,
-                            before_state={"status": cur_status},
-                            after_state={"status": "withheld_sensitive"},
-                        )
-                        st.rerun()
+                        try:
+                            supabase.table("stories").update({"status": "withheld_sensitive"}).eq("id", sid).execute()
+                            _log_admin_action(
+                                supabase,
+                                actor_id,
+                                "STORY_WITHHOLD",
+                                "Withheld sensitive story",
+                                "stories",
+                                st_row.get("headline_en", sid)[:80],
+                                target_id=sid,
+                                before_state={"status": cur_status},
+                                after_state={"status": "withheld_sensitive"},
+                            )
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Update failed: {exc}")
 
     # 5. AUDIT LOGS
     with tab_audit:
