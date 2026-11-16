@@ -37,90 +37,91 @@ st.markdown(
         font-family: "Times New Roman", "Playfair Display", Georgia, serif !important;
     }
 
-    /* Main Page Aged-Newsprint Neutral Background */
+    /* Default Signed-In Page Aged-Newsprint Neutral Background */
     .stApp {
         background-color: #F4F1EA;
         color: #1D120A;
+    }
+
+    /* Deep Editorial Burgundy Across ENTIRE Public Landing Page */
+    .stApp:has(.newsprint-sheet) {
+        background: linear-gradient(165deg, #3C0612 0%, #24020A 100%) !important;
+        color: #FBF9F4 !important;
+    }
+    .stApp:has(.newsprint-sheet) header[data-testid="stHeader"] {
+        background: transparent !important;
     }
 
     /* Equal-Height Split-Screen Columns */
     div[data-testid="stHorizontalBlock"] {
         align-items: stretch !important;
     }
-    div[data-testid="stColumn"] > div,
-    div[data-testid="stColumn"] > div > div[data-testid="stVerticalBlock"] {
-        height: 100%;
-    }
 
     /* ---------------------------------------------------------
-       LEFT COLUMN: UNIFIED BURGUNDY BRAND CONTAINER
+       LEFT COLUMN ON DEEP BURGUNDY LANDING PAGE
        --------------------------------------------------------- */
-    div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlockBorderWrapper"] {
-        background: linear-gradient(165deg, #3C0612 0%, #26030B 100%) !important;
-        border: 2px solid #D4AF37 !important;
+    .stApp:has(.newsprint-sheet) div[data-testid="stColumn"]:first-child [data-testid="stVerticalBlockBorderWrapper"],
+    .stApp:has(.newsprint-sheet) div[data-testid="stColumn"]:first-child > div > div > div[data-testid="stVerticalBlock"] {
+        background-color: rgba(255, 255, 255, 0.03) !important;
+        border: 1.5px solid rgba(212, 175, 55, 0.55) !important;
         border-radius: 14px !important;
-        padding: 22px 22px 16px 22px !important;
-        box-shadow: 0 8px 24px rgba(29, 18, 10, 0.16) !important;
-        height: 100% !important;
-        display: flex !important;
-        flex-direction: column !important;
-        justify-content: space-between !important;
+        padding: 18px 20px 14px 20px !important;
     }
     .brand-top-block {
         text-align: center;
     }
     .landing-logo-img {
-        width: 196px;
-        height: 196px;
+        width: 180px;
+        height: 180px;
         object-fit: cover;
-        border-radius: 16px;
+        border-radius: 14px;
         border: 2.5px solid #D4AF37;
         margin: 0 auto 14px auto;
         display: block;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
     }
     .landing-feature-pill {
         background-color: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(212, 175, 55, 0.7);
+        border: 1px solid #D4AF37;
         border-radius: 8px;
-        padding: 7px 14px;
+        padding: 7px 13px;
         margin: 0 auto 7px auto;
         width: 100%;
-        font-size: 0.92rem;
+        font-size: 0.9rem;
         font-weight: 600;
-        color: #FBF9F4;
+        color: #FFFFFF !important;
         text-align: left;
         box-sizing: border-box;
     }
 
-    /* Prominent Full-Width Multicolor Google Sign-In Button Inside Burgundy Card */
+    /* Prominent Full-Width Multicolor Google Sign-In Button */
     div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] {
         margin: 10px 0 6px 0 !important;
         width: 100% !important;
     }
     div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a {
         width: 100% !important;
-        min-height: 48px !important;
+        min-height: 46px !important;
         background-color: #FFFFFF !important;
         color: #1F1F1F !important;
         border: 2px solid #D4AF37 !important;
         border-radius: 8px !important;
-        padding: 10px 20px !important;
+        padding: 9px 18px !important;
         font-family: "Inter", "Times New Roman", sans-serif !important;
-        font-size: 1.06rem !important;
+        font-size: 1.02rem !important;
         font-weight: 700 !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         gap: 12px !important;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32) !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35) !important;
         text-decoration: none !important;
     }
     div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a::before {
         content: "";
         display: inline-block;
-        width: 22px;
-        height: 22px;
+        width: 21px;
+        height: 21px;
         flex-shrink: 0;
         background-repeat: no-repeat;
         background-size: contain;
@@ -133,11 +134,11 @@ st.markdown(
     }
 
     .landing-credit {
-        border-top: 1px solid rgba(212, 175, 55, 0.45);
-        padding-top: 10px;
+        border-top: 1px solid rgba(212, 175, 55, 0.55);
+        padding-top: 9px;
         margin-top: 6px;
-        font-size: 0.86rem;
-        color: #F3ECE0 !important;
+        font-size: 0.85rem;
+        color: #FBF9F4 !important;
         text-align: center;
     }
     .landing-credit span {
@@ -146,42 +147,41 @@ st.markdown(
     }
 
     /* ---------------------------------------------------------
-       RIGHT COLUMN: COMPACT PRINT-STYLE DIGITAL BROADSHEET
+       RIGHT COLUMN: CREAM NEWSPRINT BROADSHEET (18% SMALLER FONTS)
        --------------------------------------------------------- */
     .newsprint-sheet {
-        background-color: #FBF9F4;
-        border: 2px solid #1D120A;
+        background-color: #FBF9F4 !important;
+        border: 2px solid #D4AF37;
         border-radius: 14px;
-        padding: 16px 20px;
-        color: #1D120A;
-        box-shadow: 0 6px 20px rgba(29, 18, 10, 0.08);
-        height: 100%;
+        padding: 14px 18px;
+        color: #1D120A !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
         display: flex;
         flex-direction: column;
         justify-content: space-between;
         box-sizing: border-box;
     }
     .newsprint-masthead {
-        border-bottom: 3px double #1D120A;
-        padding-bottom: 7px;
-        margin-bottom: 10px;
+        border-bottom: 2.5px double #1D120A;
+        padding-bottom: 5px;
+        margin-bottom: 8px;
         text-align: center;
     }
     .newsprint-edition-bar {
         display: flex;
         justify-content: space-between;
-        font-size: 0.7rem;
+        font-size: 0.60rem;
         font-weight: bold;
         letter-spacing: 0.06em;
         text-transform: uppercase;
         color: #5C4938;
         border-bottom: 1px solid #C8BFA8;
-        padding-bottom: 3px;
-        margin-bottom: 5px;
+        padding-bottom: 2px;
+        margin-bottom: 4px;
     }
     .newsprint-paper-title {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 1.45rem;
+        font-size: 1.22rem;
         font-weight: 800;
         letter-spacing: 0.06em;
         color: #3C0612;
@@ -189,20 +189,20 @@ st.markdown(
         line-height: 1.1;
     }
     .newsprint-paper-sub {
-        font-size: 0.78rem;
+        font-size: 0.67rem;
         font-style: italic;
         color: #4A3B2C;
         margin-top: 2px;
     }
 
-    /* Print Newspaper Lead Story + 2-Column Below Fold */
+    /* Print Newspaper Lead Story + 2-Column Below Fold (Reduced 15-20%) */
     .paper-lead-story {
         border-bottom: 1.5px solid #1D120A;
-        padding-bottom: 9px;
-        margin-bottom: 9px;
+        padding-bottom: 7px;
+        margin-bottom: 7px;
     }
     .paper-kicker {
-        font-size: 0.67rem;
+        font-size: 0.58rem;
         font-weight: bold;
         letter-spacing: 0.04em;
         color: #7A1C24;
@@ -210,59 +210,59 @@ st.markdown(
     }
     .paper-lead-headline {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 1.06rem;
+        font-size: 0.90rem;
         font-weight: 700;
         color: #1D120A;
         margin: 0 0 2px 0;
-        line-height: 1.22;
+        line-height: 1.2;
     }
     .paper-byline {
-        font-size: 0.7rem;
+        font-size: 0.60rem;
         font-style: italic;
         color: #6B5846;
-        margin-bottom: 4px;
+        margin-bottom: 3px;
     }
     .paper-lead-copy {
-        font-size: 0.84rem;
-        line-height: 1.38;
+        font-size: 0.72rem;
+        line-height: 1.34;
         color: #2B1E12;
         margin: 0;
     }
     .paper-columns-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 12px;
+        gap: 11px;
         align-items: start;
     }
     .paper-col-story:first-child {
         border-right: 1px solid #C8BFA8;
-        padding-right: 10px;
+        padding-right: 9px;
     }
     .paper-col-headline {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 0.9rem;
+        font-size: 0.77rem;
         font-weight: 700;
         color: #1D120A;
         margin: 0 0 2px 0;
-        line-height: 1.22;
+        line-height: 1.2;
     }
     .paper-col-copy {
-        font-size: 0.8rem;
-        line-height: 1.35;
+        font-size: 0.69rem;
+        line-height: 1.32;
         color: #33261A;
         margin: 0;
     }
 
     .newsprint-bottom-links {
-        border-top: 2px solid #1D120A;
-        margin-top: 10px;
-        padding-top: 8px;
+        border-top: 1.5px solid #1D120A;
+        margin-top: 8px;
+        padding-top: 6px;
         text-align: center;
-        font-size: 0.82rem;
+        font-size: 0.70rem;
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
-        gap: 8px;
+        gap: 7px;
     }
     .newsprint-bottom-links a {
         color: #3C0612 !important;
