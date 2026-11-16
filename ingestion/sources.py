@@ -6,7 +6,7 @@ NEWS_SOURCES = [
         "language": "bn",
         "default_geography": "State",
         "rss_urls": [
-            "https://news.google.com/rss/search?q=site:anandabazar.com+when:2d&hl=bn&gl=IN&ceid=IN:bn",
+            "https://news.google.com/rss/search?q=site:anandabazar.com%20when%3A2d&hl=bn&gl=IN&ceid=IN:bn",
         ],
     },
     {
@@ -15,7 +15,7 @@ NEWS_SOURCES = [
         "language": "bn",
         "default_geography": "State",
         "rss_urls": [
-            "https://news.google.com/rss/search?q=site:bartamanpatrika.com+when:2d&hl=bn&gl=IN&ceid=IN:bn",
+            "https://news.google.com/rss/search?q=site:bartamanpatrika.com%20when%3A2d&hl=bn&gl=IN&ceid=IN:bn",
         ],
     },
     {
@@ -24,7 +24,7 @@ NEWS_SOURCES = [
         "language": "bn",
         "default_geography": "State",
         "rss_urls": [
-            "https://news.google.com/rss/search?q=site:aajkaal.in+when:2d&hl=bn&gl=IN&ceid=IN:bn",
+            "https://news.google.com/rss/search?q=site:aajkaal.in%20when%3A2d&hl=bn&gl=IN&ceid=IN:bn",
         ],
     },
     {
@@ -34,7 +34,7 @@ NEWS_SOURCES = [
         "default_geography": "State",
         "rss_urls": [
             "https://www.sangbadpratidin.in/feed/",
-            "https://news.google.com/rss/search?q=site:sangbadpratidin.in+when:2d&hl=bn&gl=IN&ceid=IN:bn",
+            "https://news.google.com/rss/search?q=site:sangbadpratidin.in%20when%3A2d&hl=bn&gl=IN&ceid=IN:bn",
         ],
     },
     {
@@ -44,7 +44,7 @@ NEWS_SOURCES = [
         "default_geography": "State",
         "rss_urls": [
             "https://eisamay.com/rssfeedstopstories.cms",
-            "https://news.google.com/rss/search?q=site:eisamay.com+when:2d&hl=bn&gl=IN&ceid=IN:bn",
+            "https://news.google.com/rss/search?q=site:eisamay.com%20when%3A2d&hl=bn&gl=IN&ceid=IN:bn",
         ],
     },
     # --- ENGLISH DAILIES (NATIONAL & KOLKATA) ---
@@ -84,7 +84,7 @@ NEWS_SOURCES = [
         "language": "en",
         "default_geography": "State",
         "rss_urls": [
-            "https://news.google.com/rss/search?q=site:telegraphindia.com+when:2d&hl=en-IN&gl=IN&ceid=IN:en",
+            "https://news.google.com/rss/search?q=site:telegraphindia.com%20when%3A2d&hl=en-IN&gl=IN&ceid=IN:en",
         ],
     },
     {
