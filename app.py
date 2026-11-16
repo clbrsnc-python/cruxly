@@ -44,63 +44,48 @@ st.markdown(
     }
 
     /* ---------------------------------------------------------
-       SPLIT-SCREEN PUBLIC LANDING PAGE (BURGUNDY + NEWSPRINT)
+       SPLIT-SCREEN PUBLIC LANDING PAGE (BURGUNDY + PRINT BROADSHEET)
        --------------------------------------------------------- */
     .landing-brand-panel {
         background: linear-gradient(165deg, #3C0612 0%, #26030B 100%);
         border: 2px solid #D4AF37;
         border-radius: 14px;
-        padding: 32px 28px;
+        padding: 28px 24px;
         color: #FBF9F4;
         text-align: center;
         box-shadow: 0 8px 24px rgba(29, 18, 10, 0.16);
     }
     .landing-logo-img {
-        width: 148px;
-        height: 148px;
+        width: 215px;
+        height: 215px;
         object-fit: cover;
-        border-radius: 14px;
+        border-radius: 16px;
         border: 2.5px solid #D4AF37;
-        margin: 0 auto 14px auto;
+        margin: 0 auto 16px auto;
         display: block;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-    }
-    .landing-title {
-        font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 2.45rem;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        color: #E5C158;
-        margin: 0;
-        line-height: 1.15;
-    }
-    .landing-tagline {
-        font-size: 1.15rem;
-        font-style: italic;
-        color: #F8E7B4;
-        margin: 4px 0 14px 0;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
     }
     .landing-subtitle {
-        font-size: 1.05rem;
-        line-height: 1.5;
-        color: #F3ECE0;
-        margin: 0 auto 20px auto;
+        font-size: 1.03rem;
+        line-height: 1.48;
+        color: #F8E7B4;
+        margin: 0 auto 18px auto;
         max-width: 440px;
     }
     .landing-feature-pill {
         background-color: rgba(255, 255, 255, 0.06);
         border: 1px solid rgba(212, 175, 55, 0.65);
         border-radius: 8px;
-        padding: 9px 14px;
-        margin: 0 auto 10px auto;
+        padding: 8px 14px;
+        margin: 0 auto 9px auto;
         max-width: 420px;
-        font-size: 0.98rem;
+        font-size: 0.95rem;
         font-weight: 600;
         color: #FBF9F4;
         text-align: left;
     }
     .landing-google-wrap {
-        margin: 22px auto 16px auto;
+        margin: 20px auto 14px auto;
         display: flex;
         justify-content: center;
     }
@@ -113,9 +98,9 @@ st.markdown(
         color: #1F1F1F !important;
         border: 2px solid #D4AF37 !important;
         border-radius: 8px;
-        padding: 12px 26px;
+        padding: 11px 24px;
         font-family: "Inter", "Times New Roman", sans-serif !important;
-        font-size: 1.08rem;
+        font-size: 1.04rem;
         font-weight: 700;
         text-decoration: none !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
@@ -126,9 +111,9 @@ st.markdown(
     }
     .landing-credit {
         border-top: 1px solid rgba(212, 175, 55, 0.35);
-        padding-top: 14px;
-        margin-top: 10px;
-        font-size: 0.88rem;
+        padding-top: 12px;
+        margin-top: 8px;
+        font-size: 0.85rem;
         color: #E5D7C1;
     }
     .landing-credit span {
@@ -136,97 +121,125 @@ st.markdown(
         font-weight: bold;
     }
 
-    /* Right Column: Digital Broadsheet Newsprint Sheet */
+    /* Right Column: Compact Print-Style Digital Broadsheet */
     .newsprint-sheet {
         background-color: #FBF9F4;
         border: 2px solid #1D120A;
         border-radius: 12px;
-        padding: 22px 26px;
+        padding: 18px 22px;
         color: #1D120A;
         box-shadow: 0 6px 20px rgba(29, 18, 10, 0.08);
     }
     .newsprint-masthead {
         border-bottom: 3px double #1D120A;
-        padding-bottom: 12px;
-        margin-bottom: 16px;
+        padding-bottom: 8px;
+        margin-bottom: 12px;
         text-align: center;
     }
     .newsprint-edition-bar {
         display: flex;
         justify-content: space-between;
-        font-size: 0.8rem;
+        font-size: 0.72rem;
         font-weight: bold;
         letter-spacing: 0.06em;
         text-transform: uppercase;
         color: #5C4938;
         border-bottom: 1px solid #C8BFA8;
-        padding-bottom: 6px;
-        margin-bottom: 8px;
+        padding-bottom: 4px;
+        margin-bottom: 6px;
     }
     .newsprint-paper-title {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 1.85rem;
+        font-size: 1.55rem;
         font-weight: 800;
         letter-spacing: 0.06em;
         color: #3C0612;
         margin: 0;
-        line-height: 1.15;
+        line-height: 1.1;
     }
     .newsprint-paper-sub {
-        font-size: 0.92rem;
+        font-size: 0.82rem;
         font-style: italic;
         color: #4A3B2C;
-        margin-top: 4px;
+        margin-top: 3px;
     }
-    .paper-lead-article {
+
+    /* Print Newspaper Lead Story + 2-Column Below Fold */
+    .paper-lead-story {
         border-bottom: 1.5px solid #1D120A;
-        padding-bottom: 12px;
-        margin-bottom: 12px;
-    }
-    .paper-article {
-        border-bottom: 1px solid #D6CEBC;
         padding-bottom: 10px;
         margin-bottom: 10px;
     }
-    .paper-article:last-child {
-        border-bottom: none;
-        margin-bottom: 0;
-        padding-bottom: 4px;
-    }
     .paper-kicker {
-        font-size: 0.76rem;
+        font-size: 0.69rem;
         font-weight: bold;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.04em;
         color: #7A1C24;
-        margin-bottom: 3px;
+        margin-bottom: 2px;
     }
-    .paper-headline {
+    .paper-corrob-badge {
+        background-color: #EFE9DA;
+        color: #3C0612;
+        border: 1px solid #B8A98E;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 0.65rem;
+    }
+    .paper-lead-headline {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 1.16rem;
+        font-size: 1.15rem;
         font-weight: 700;
         color: #1D120A;
-        margin: 0 0 4px 0;
-        line-height: 1.3;
+        margin: 0 0 2px 0;
+        line-height: 1.24;
     }
-    .paper-lead-article .paper-headline {
-        font-size: 1.32rem;
+    .paper-byline {
+        font-size: 0.73rem;
+        font-style: italic;
+        color: #6B5846;
+        margin-bottom: 4px;
     }
-    .paper-excerpt {
+    .paper-lead-copy {
+        font-size: 0.88rem;
+        line-height: 1.4;
+        color: #2B1E12;
+        margin: 0;
+    }
+    .paper-columns-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        align-items: start;
+    }
+    .paper-col-story:first-child {
+        border-right: 1px solid #C8BFA8;
+        padding-right: 12px;
+    }
+    .paper-col-headline {
+        font-family: "Playfair Display", "Times New Roman", serif !important;
         font-size: 0.96rem;
-        line-height: 1.45;
+        font-weight: 700;
+        color: #1D120A;
+        margin: 0 0 2px 0;
+        line-height: 1.25;
+    }
+    .paper-col-copy {
+        font-size: 0.83rem;
+        line-height: 1.38;
         color: #33261A;
         margin: 0;
     }
+
     .newsprint-bottom-links {
         border-top: 2px solid #1D120A;
-        margin-top: 14px;
-        padding-top: 12px;
+        margin-top: 12px;
+        padding-top: 9px;
         text-align: center;
-        font-size: 0.92rem;
+        font-size: 0.84rem;
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
-        gap: 10px;
+        gap: 8px;
     }
     .newsprint-bottom-links a {
         color: #3C0612 !important;
@@ -440,9 +453,16 @@ st.markdown(
             border-right: none;
             border-bottom: 2px solid #D4AF37;
         }
-        .cruxly-bilingual-grid {
+        .cruxly-bilingual-grid,
+        .paper-columns-grid {
             grid-template-columns: 1fr;
-            gap: 14px;
+            gap: 12px;
+        }
+        .paper-col-story:first-child {
+            border-right: none;
+            border-bottom: 1px solid #C8BFA8;
+            padding-right: 0;
+            padding-bottom: 10px;
         }
         .cruxly-dateline {
             margin-left: 0;
