@@ -1,6 +1,8 @@
 import json
 import re
+import time
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 import feedparser
 import pytz
 from ingestion.sources import get_active_sources
@@ -52,6 +54,24 @@ APPROVED_GENRES = [g["name_en"] for g in DEFAULT_DPR_GENRES]
 ALLOWED_GEOGRAPHIES = ("State", "National", "International")
 ALLOWED_EDITION_SLOTS = ("morning", "evening", "live")
 
+ASTROLOGY_PATTERNS = re.compile(
+    r"("
+    r"\bhoroscope\b|\bastrology\b|\bzodiac\b|\btarot\b|\bpanchang\b|\brashifal\b|"
+    r"\baries\b|\btaurus\b|\bgemini\b|\bscorpio\b|\bsagittarius\b|\bcapricorn\b|\baquarius\b|\bpisces\b|"
+    r"/astrology/|/horoscope/|/rashifal/|"
+    r"রাশিফল|আজকের রাশিফল|দৈনিক রাশিফল|জ্যোতিষ|পঞ্জিকা|ভাগ্যফল|"
+    r"মেষ রাশি|বৃষ রাশি|মিথুন রাশি|কর্কট রাশি|সিংহ রাশি|কন্যা রাশি|তুলা রাশি|বৃশ্চিক রাশি|ধনু রাশি|মকর রাশি|কুম্ভ রাশি|মীন রাশি|"
+    r"राशिफल|आज का राशिफल|ज्योतिष|पंचांग|टैरो"
+    r")",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_astrology_item(title: str, snippet: str = "", url: str = "") -> bool:
+    """Deterministically excludes horoscope, rashifal, zodiac, and astrology items across EN/BN/HI."""
+    combined = f"{title} {snippet} {url}"
+    return bool(ASTROLOGY_PATTERNS.search(combined))
+
 
 def fetch_approved_genres(supabase) -> list[dict]:
     """Fetches active approved genres from public.genres, falling back to the 12 default DPR genres."""
@@ -68,13 +88,36 @@ def fetch_approved_genres(supabase) -> list[dict]:
             return rows
     except Exception:
         pass
-    return [{"id": idx + 1, "name_en": g["name_en"], "name_bn": g["name_bn"], "is_active": True} for idx, g in enumerate(DEFAULT_DPR_GENRES)]
+    return [
+        {"id": idx + 1, "name_en": g["name_en"], "name_bn": g["name_bn"], "is_active": True}
+        for idx, g in enumerate(DEFAULT_DPR_GENRES)
+    ]
 
 
 def _clean_text(raw: str) -> str:
     """Strips HTML tags and excess whitespace from RSS snippets."""
     text = re.sub(r"<[^>]+>", " ", raw or "")
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _parse_entry_datetime_ist(entry) -> datetime | None:
+    """Parses RSS entry publication date into IST timezone-aware datetime."""
+    if getattr(entry, "published_parsed", None):
+        try:
+            ts = time.mktime(entry.published_parsed)
+            return datetime.fromtimestamp(ts, tz=pytz.UTC).astimezone(IST)
+        except Exception:
+            pass
+    raw_date = entry.get("published") or entry.get("updated") or ""
+    if raw_date:
+        try:
+            dt = parsedate_to_datetime(raw_date)
+            if dt.tzinfo is None:
+                dt = pytz.UTC.localize(dt)
+            return dt.astimezone(IST)
+        except Exception:
+            pass
+    return None
 
 
 def _extract_named_entities(cluster: list[dict]) -> tuple[list[str], list[str]]:
@@ -84,7 +127,10 @@ def _extract_named_entities(cluster: list[dict]) -> tuple[list[str], list[str]]:
     """
     acronyms: set[str] = set()
     proper_nouns: set[str] = set()
-    ignore_caps = {"THE", "AND", "FOR", "WITH", "FROM", "INTO", "OVER", "AFTER", "AMID", "SAYS", "NEW", "WILL", "HOW", "WHY", "WHAT"}
+    ignore_caps = {
+        "THE", "AND", "FOR", "WITH", "FROM", "INTO", "OVER", "AFTER",
+        "AMID", "SAYS", "NEW", "WILL", "HOW", "WHY", "WHAT",
+    }
 
     for item in cluster:
         if item.get("language") != "en":
@@ -102,13 +148,19 @@ def _extract_named_entities(cluster: list[dict]) -> tuple[list[str], list[str]]:
 def _apply_universal_bengali_morphology(text: str) -> str:
     """
     Applies purely structural, algorithmic Bengali grammar & typography rules:
-      1. Fixes Hindi '-varshiya' age calques ([digits]-বছরী/বছরীয় -> [digits] বছর বয়সী)
+      1. Fixes Hindi '-varshiya' age calques across ALL Unicode hyphen/dash variants (\u2010-\u2015)
+         e.g., 'আট‑বছরীর' / 'আট-বছরীয়' / '৮–বছরী' -> 'আট বছর বয়সী' / '৮ বছর বয়সী'
       2. Moves Bengali case suffixes trapped outside closing quotation marks back inside
     """
     if not text:
         return text
 
-    text = re.sub(r"([০-৯0-9]+)[\s\-‑]*বছরীয়?[াীের]*", r"\1 বছর বয়সী", text)
+    bn_num_words = "এক|দুই|তিন|চার|পাঁচ|ছয়|সাত|আট|নয়|দশ|এগারো|বারো|তেরো|চোদ্দ|পনেরো|ষোলো|সতেরো|আঠারো|উনিশ|বিশ"
+    text = re.sub(
+        rf"([০-৯0-9]+|{bn_num_words})[\s\-\u2010-\u2015]*বছরীয়?[াীের]*",
+        r"\1 বছর বয়সী",
+        text,
+    )
     text = re.sub(r"([‘’'\"])([েয়কেতর])", r"\2\1", text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -186,11 +238,7 @@ def _normalize_secondary_genres(raw_list: list | None, primary: str, allowed_nam
 
 
 def _detect_sensitive_status(headline_en: str, in_brief_en: str, is_sensitive_flag: bool = False) -> str:
-    """
-    Applies DPR Sensitive News Safeguard:
-    Single-source unverified communal riot/lynching/sexual-violence graphic reports are routed to 'flagged_review'
-    for admin verification rather than auto-publishing unverified sensitive claims.
-    """
+    """Applies DPR Sensitive News Safeguard for unverified communal/graphic reports."""
     if is_sensitive_flag:
         return "flagged_review"
     combined = f"{headline_en} {in_brief_en}".lower()
@@ -214,7 +262,7 @@ def _get_existing_urls_and_headlines(supabase) -> tuple[set[str], set[str]]:
     """Fetches recently published article URLs and normalized headlines to prevent duplicates."""
     existing_urls: set[str] = set()
     existing_headlines: set[str] = set()
-    cutoff_iso = (datetime.now(IST) - timedelta(days=3)).isoformat()
+    cutoff_iso = (datetime.now(IST) - timedelta(days=7)).isoformat()
 
     try:
         refs_res = (
@@ -246,9 +294,17 @@ def _get_existing_urls_and_headlines(supabase) -> tuple[set[str], set[str]]:
     return existing_urls, existing_headlines
 
 
-def fetch_rss_items(max_per_feed: int = 8) -> list[dict]:
-    """Collects latest headlines, short descriptions, and direct links across English, Bengali, and Hindi sources."""
+def fetch_rss_items(
+    max_per_feed: int = 10,
+    since_dt_ist: datetime | None = None,
+) -> tuple[list[dict], int]:
+    """
+    Collects latest headlines, short descriptions, and direct links across English, Bengali, and Hindi sources,
+    excluding astrology/horoscope items and optionally filtering to entries published on or after since_dt_ist.
+    """
     collected = []
+    astrology_skipped = 0
+
     for source in get_active_sources():
         for rss_url in source.get("rss_urls", []):
             try:
@@ -257,28 +313,38 @@ def fetch_rss_items(max_per_feed: int = 8) -> list[dict]:
                     title = _clean_text(entry.get("title", ""))
                     link = (entry.get("link") or "").strip()
                     snippet = _clean_text(entry.get("summary") or entry.get("description") or "")[:500]
-                    if title and link:
-                        collected.append(
-                            {
-                                "source_id": source["id"],
-                                "source_name": source["name"],
-                                "language": source["language"],
-                                "geography": _normalize_geography(source.get("default_geography"), "National"),
-                                "title": title,
-                                "snippet": snippet,
-                                "url": link,
-                                "published": entry.get("published", ""),
-                            }
-                        )
+                    if not title or not link:
+                        continue
+
+                    if _is_astrology_item(title, snippet, link):
+                        astrology_skipped += 1
+                        continue
+
+                    entry_dt = _parse_entry_datetime_ist(entry)
+                    if since_dt_ist is not None and entry_dt is not None and entry_dt < since_dt_ist:
+                        continue
+
+                    collected.append(
+                        {
+                            "source_id": source["id"],
+                            "source_name": source["name"],
+                            "language": source["language"],
+                            "geography": _normalize_geography(source.get("default_geography"), "National"),
+                            "title": title,
+                            "snippet": snippet,
+                            "url": link,
+                            "published": entry_dt.isoformat() if entry_dt else entry.get("published", ""),
+                        }
+                    )
             except Exception:
                 continue
-    return collected
+    return collected, astrology_skipped
 
 
-def cluster_items(items: list[dict], max_clusters: int = 20) -> list[list[dict]]:
+def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list[dict]]:
     """
-    Groups matching stories across English, Bengali, and Hindi feeds using multilingual Unicode tokenization,
-    and guarantees strong representation of original Bengali newspaper clusters in every cycle.
+    Groups matching stories across English, Bengali, and Hindi feeds using multilingual Unicode tokenization.
+    When max_clusters is None (exhaustive backfill), returns all unique story clusters.
     """
     clusters: list[list[dict]] = []
     stop_words = {
@@ -314,6 +380,17 @@ def cluster_items(items: list[dict], max_clusters: int = 20) -> list[list[dict]]
 
     bn_clusters.sort(key=lambda c: len(c), reverse=True)
     other_clusters.sort(key=lambda c: len(c), reverse=True)
+
+    if max_clusters is None:
+        # Interleave Bengali and English/Hindi clusters for balanced exhaustive backfill
+        merged: list[list[dict]] = []
+        max_len = max(len(bn_clusters), len(other_clusters))
+        for i in range(max_len):
+            if i < len(bn_clusters):
+                merged.append(bn_clusters[i])
+            if i < len(other_clusters):
+                merged.append(other_clusters[i])
+        return merged
 
     bn_quota = min(len(bn_clusters), max_clusters // 2)
     selected = bn_clusters[:bn_quota] + other_clusters[: max_clusters - bn_quota]
@@ -566,13 +643,35 @@ def run_ingestion_cycle(
     gemini_api_key: str | None = None,
     groq_api_key: str | None = None,
     edition_slot: str = "live",
+    since_date: str | None = None,
+    exhaustive: bool = False,
 ) -> dict:
-    """Executes one full collect -> deduplicate -> cluster -> synthesize -> publish cycle for 'live', 'morning', or 'evening'."""
+    """
+    Executes collect -> exclude astrology -> deduplicate -> cluster -> synthesize -> publish.
+    When exhaustive=True (or since_date is provided), collects up to 25 entries/feed and processes
+    ALL new unique clusters from that date onward with gentle Groq rate-limit pacing.
+    """
     slot = edition_slot if edition_slot in ALLOWED_EDITION_SLOTS else "live"
-    raw_items = fetch_rss_items(max_per_feed=8)
+    since_dt_ist: datetime | None = None
+    if since_date:
+        try:
+            parsed_d = datetime.strptime(since_date.strip()[:10], "%Y-%m-%d")
+            since_dt_ist = IST.localize(parsed_d)
+        except Exception:
+            since_dt_ist = None
+
+    per_feed_limit = 25 if (exhaustive or since_dt_ist is not None) else 10
+    raw_items, astrology_skipped = fetch_rss_items(
+        max_per_feed=per_feed_limit,
+        since_dt_ist=since_dt_ist,
+    )
     fetched_count = len(raw_items)
     if not raw_items:
-        return {"fetched": 0, "published": 0, "message": "No RSS entries reachable right now."}
+        return {
+            "fetched": 0,
+            "published": 0,
+            "message": f"No non-astrology RSS entries reachable (excluded {astrology_skipped} astrology/horoscope items).",
+        }
 
     bn_fetched = sum(1 for it in raw_items if it["language"] == "bn")
     active_genre_rows = fetch_approved_genres(supabase)
@@ -585,10 +684,15 @@ def run_ingestion_cycle(
         return {
             "fetched": fetched_count,
             "published": 0,
-            "message": f"Fetched {fetched_count} RSS items ({bn_fetched} Bengali); all were already published in recent cycles.",
+            "message": (
+                f"Fetched {fetched_count} RSS items ({bn_fetched} Bengali, excluded {astrology_skipped} astrology items); "
+                f"all were already published in recent cycles."
+            ),
         }
 
-    clusters = cluster_items(fresh_items, max_clusters=20)
+    cluster_cap = None if (exhaustive or since_dt_ist is not None) else 25
+    clusters = cluster_items(fresh_items, max_clusters=cluster_cap)
+
     published_count = 0
     bn_published = 0
     flagged_count = 0
@@ -598,7 +702,7 @@ def run_ingestion_cycle(
     now_ist_iso = now_ist.isoformat()
     expires_ist_iso = (now_ist + timedelta(days=90)).isoformat()
 
-    for cluster in clusters:
+    for idx, cluster in enumerate(clusters):
         norm_primary = re.sub(r"[^a-z0-9\u0980-\u09FF]+", " ", cluster[0]["title"].lower()).strip()
         if norm_primary in existing_headlines:
             skipped_dups += 1
@@ -664,17 +768,23 @@ def run_ingestion_cycle(
             errors.append(str(ins_exc))
             continue
 
+        # Gentle pacing during large exhaustive backfills to stay comfortably inside Groq TPM/RPM limits
+        if cluster_cap is None and idx < len(clusters) - 1:
+            time.sleep(1.2)
+
     raw_items.clear()
     fresh_items.clear()
     clusters.clear()
 
     diag_suffix = f" (Diagnostic: {errors[0]})" if errors else ""
     flag_note = f", {flagged_count} held for sensitive review" if flagged_count else ""
+    mode_label = f"EXHAUSTIVE BACKFILL FROM {since_date}" if since_date else f"{slot.upper()} EDITION"
     return {
         "fetched": fetched_count,
         "published": published_count,
         "message": (
-            f"[{slot.upper()} EDITION] Fetched {fetched_count} RSS items ({bn_fetched} Bengali), skipped {skipped_dups} duplicates, "
-            f"and processed {published_count} consolidated briefings ({bn_published} citing Bengali dailies{flag_note}).{diag_suffix}"
+            f"[{mode_label}] Fetched {fetched_count} RSS items ({bn_fetched} Bengali, excluded {astrology_skipped} astrology items), "
+            f"skipped {skipped_dups} duplicates, and published {published_count} consolidated briefings "
+            f"({bn_published} citing Bengali dailies{flag_note}).{diag_suffix}"
         ),
     }
