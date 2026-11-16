@@ -1,12 +1,16 @@
 import base64
+from datetime import datetime
+import pytz
 import streamlit as st
 from utils.supabase_client import get_pkce_pair, get_supabase
 from views.public_pages import render_legal_page, render_public_landing
 from views.reader_portal import render_reader_portal
 from views.admin_portal import render_admin_portal
 
+IST = pytz.timezone("Asia/Kolkata")
+
 # ---------------------------------------------------------
-# 1. PAGE CONFIG & GLOBAL VISUAL THEME (Times New Roman)
+# 1. PAGE CONFIG & GLOBAL EDITORIAL BROADSHEET THEME
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Cruxly — Intelligent News for Intelligent Readers.",
@@ -26,32 +30,227 @@ logo_b64 = get_base64_image("cruxly_logo.jpg")
 st.markdown(
     """
     <style>
-    /* Global Times New Roman Typography (DPR v1.1 Section 8) */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+Bengali:wght@400;600;700&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&display=swap');
+
+    /* Global Editorial Typography */
     html, body, [class*="css"], .stApp, button, input, select, textarea, p, h1, h2, h3, h4, h5, h6, span, div, a {
-        font-family: "Times New Roman", Times, serif !important;
+        font-family: "Times New Roman", "Playfair Display", Georgia, serif !important;
     }
 
-    /* Main Page Light Neutral Background */
+    /* Main Page Aged-Newsprint Neutral Background */
     .stApp {
-        background-color: #F4F6F9;
-        color: #102033;
+        background-color: #F4F1EA;
+        color: #1D120A;
     }
 
-    /* Flush Hero Header (Logo + Matching Height Deep Academic Blue Banner, Zero Gap) */
+    /* ---------------------------------------------------------
+       SPLIT-SCREEN PUBLIC LANDING PAGE (BURGUNDY + NEWSPRINT)
+       --------------------------------------------------------- */
+    .landing-brand-panel {
+        background: linear-gradient(165deg, #3C0612 0%, #26030B 100%);
+        border: 2px solid #D4AF37;
+        border-radius: 14px;
+        padding: 32px 28px;
+        color: #FBF9F4;
+        text-align: center;
+        box-shadow: 0 8px 24px rgba(29, 18, 10, 0.16);
+    }
+    .landing-logo-img {
+        width: 148px;
+        height: 148px;
+        object-fit: cover;
+        border-radius: 14px;
+        border: 2.5px solid #D4AF37;
+        margin: 0 auto 14px auto;
+        display: block;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    }
+    .landing-title {
+        font-family: "Playfair Display", "Times New Roman", serif !important;
+        font-size: 2.45rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        color: #E5C158;
+        margin: 0;
+        line-height: 1.15;
+    }
+    .landing-tagline {
+        font-size: 1.15rem;
+        font-style: italic;
+        color: #F8E7B4;
+        margin: 4px 0 14px 0;
+    }
+    .landing-subtitle {
+        font-size: 1.05rem;
+        line-height: 1.5;
+        color: #F3ECE0;
+        margin: 0 auto 20px auto;
+        max-width: 440px;
+    }
+    .landing-feature-pill {
+        background-color: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(212, 175, 55, 0.65);
+        border-radius: 8px;
+        padding: 9px 14px;
+        margin: 0 auto 10px auto;
+        max-width: 420px;
+        font-size: 0.98rem;
+        font-weight: 600;
+        color: #FBF9F4;
+        text-align: left;
+    }
+    .landing-google-wrap {
+        margin: 22px auto 16px auto;
+        display: flex;
+        justify-content: center;
+    }
+    a.google-signin-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background-color: #FFFFFF !important;
+        color: #1F1F1F !important;
+        border: 2px solid #D4AF37 !important;
+        border-radius: 8px;
+        padding: 12px 26px;
+        font-family: "Inter", "Times New Roman", sans-serif !important;
+        font-size: 1.08rem;
+        font-weight: 700;
+        text-decoration: none !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+    }
+    a.google-signin-btn:hover {
+        background-color: #FFFDF7 !important;
+        border-color: #E5C158 !important;
+    }
+    .landing-credit {
+        border-top: 1px solid rgba(212, 175, 55, 0.35);
+        padding-top: 14px;
+        margin-top: 10px;
+        font-size: 0.88rem;
+        color: #E5D7C1;
+    }
+    .landing-credit span {
+        color: #E5C158;
+        font-weight: bold;
+    }
+
+    /* Right Column: Digital Broadsheet Newsprint Sheet */
+    .newsprint-sheet {
+        background-color: #FBF9F4;
+        border: 2px solid #1D120A;
+        border-radius: 12px;
+        padding: 22px 26px;
+        color: #1D120A;
+        box-shadow: 0 6px 20px rgba(29, 18, 10, 0.08);
+    }
+    .newsprint-masthead {
+        border-bottom: 3px double #1D120A;
+        padding-bottom: 12px;
+        margin-bottom: 16px;
+        text-align: center;
+    }
+    .newsprint-edition-bar {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.8rem;
+        font-weight: bold;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #5C4938;
+        border-bottom: 1px solid #C8BFA8;
+        padding-bottom: 6px;
+        margin-bottom: 8px;
+    }
+    .newsprint-paper-title {
+        font-family: "Playfair Display", "Times New Roman", serif !important;
+        font-size: 1.85rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        color: #3C0612;
+        margin: 0;
+        line-height: 1.15;
+    }
+    .newsprint-paper-sub {
+        font-size: 0.92rem;
+        font-style: italic;
+        color: #4A3B2C;
+        margin-top: 4px;
+    }
+    .paper-lead-article {
+        border-bottom: 1.5px solid #1D120A;
+        padding-bottom: 12px;
+        margin-bottom: 12px;
+    }
+    .paper-article {
+        border-bottom: 1px solid #D6CEBC;
+        padding-bottom: 10px;
+        margin-bottom: 10px;
+    }
+    .paper-article:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 4px;
+    }
+    .paper-kicker {
+        font-size: 0.76rem;
+        font-weight: bold;
+        letter-spacing: 0.05em;
+        color: #7A1C24;
+        margin-bottom: 3px;
+    }
+    .paper-headline {
+        font-family: "Playfair Display", "Times New Roman", serif !important;
+        font-size: 1.16rem;
+        font-weight: 700;
+        color: #1D120A;
+        margin: 0 0 4px 0;
+        line-height: 1.3;
+    }
+    .paper-lead-article .paper-headline {
+        font-size: 1.32rem;
+    }
+    .paper-excerpt {
+        font-size: 0.96rem;
+        line-height: 1.45;
+        color: #33261A;
+        margin: 0;
+    }
+    .newsprint-bottom-links {
+        border-top: 2px solid #1D120A;
+        margin-top: 14px;
+        padding-top: 12px;
+        text-align: center;
+        font-size: 0.92rem;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+    }
+    .newsprint-bottom-links a {
+        color: #3C0612 !important;
+        font-weight: bold;
+        text-decoration: underline;
+    }
+
+    /* ---------------------------------------------------------
+       SIGNED-IN PORTAL HERO & READER CARDS
+       --------------------------------------------------------- */
     .hero-wrapper {
         display: flex;
         align-items: stretch;
         width: 100%;
-        height: 240px;
+        height: 195px;
         margin-bottom: 14px;
         border-radius: 12px;
         overflow: hidden;
         border: 2px solid #D4AF37;
-        background-color: #0B2545;
+        background: linear-gradient(135deg, #3C0612 0%, #0B2545 100%);
     }
     .hero-logo {
-        height: 240px;
-        width: 240px;
+        height: 195px;
+        width: 195px;
         object-fit: cover;
         display: block;
         flex-shrink: 0;
@@ -59,119 +258,172 @@ st.markdown(
     }
     .hero-banner-content {
         flex: 1;
-        background-color: #0B2545;
-        padding: 24px 32px;
+        padding: 20px 28px;
         display: flex;
         flex-direction: column;
         justify-content: center;
         color: #FFFFFF;
     }
+    .hero-dateline-strip {
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #F8E7B4;
+        margin-bottom: 6px;
+        font-weight: bold;
+    }
     .hero-welcome {
         color: #E5C158;
-        font-size: 2.05rem;
+        font-size: 1.9rem;
         font-weight: bold;
-        margin: 0 0 10px 0;
-        line-height: 1.25;
+        margin: 0 0 8px 0;
+        line-height: 1.2;
     }
     .hero-subtext {
         color: #F8E7B4;
-        font-size: 1.1rem;
+        font-size: 1.02rem;
         margin: 0;
     }
 
-    /* High-Contrast Native Streamlit Buttons & Link Buttons */
+    /* Native Streamlit Buttons & Link Buttons */
     div.stButton > button,
     div[data-testid="stLinkButton"] > a {
-        background-color: #0B2545 !important;
+        background-color: #3C0612 !important;
         color: #FFFFFF !important;
-        border: 2px solid #D4AF37 !important;
-        font-family: "Times New Roman", Times, serif !important;
+        border: 1.5px solid #D4AF37 !important;
+        font-family: "Times New Roman", serif !important;
         font-weight: bold !important;
-        font-size: 1.05rem !important;
+        font-size: 0.98rem !important;
         border-radius: 6px !important;
-        padding: 0.5rem 1.4rem !important;
-        transition: none !important;
-        animation: none !important;
+        padding: 0.42rem 1.15rem !important;
         text-decoration: none !important;
     }
     div.stButton > button:hover,
     div[data-testid="stLinkButton"] > a:hover {
-        background-color: #1B4965 !important;
+        background-color: #590B1D !important;
         color: #E5C158 !important;
     }
 
-    /* Static Vibrant Menu Bar (Zero Animation - DPR v1.1 Section 8) */
-    .static-nav {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-bottom: 20px;
-    }
-    .nav-pill {
-        padding: 8px 18px;
-        border-radius: 6px;
-        font-weight: bold;
-        font-size: 1rem;
-        color: #FFFFFF;
-        text-decoration: none;
-        border: 1px solid #0B2545;
-        transition: none !important;
-        animation: none !important;
-    }
-    .nav-home { background-color: #1B4965; }
-    .nav-edition { background-color: #2A6F97; }
-    .nav-archive { background-color: #7B2CBF; }
-    .nav-saved { background-color: #2D6A4F; }
-    .nav-prefs { background-color: #B5651D; }
-    .nav-admin { background-color: #8B1E3F; }
-
-    /* White News & Information Cards with Blue Border */
+    /* Reader Portal Briefing Cards */
     .cruxly-card {
-        background-color: #FFFFFF;
-        border: 1.5px solid #1B4965;
+        background-color: #FBF9F4;
+        border: 1.5px solid #C8BFA8;
+        border-left: 4px solid #3C0612;
         border-radius: 8px;
         padding: 18px 22px;
-        margin-bottom: 16px;
-        color: #102033;
+        margin-bottom: 10px;
+        color: #1D120A;
+        box-shadow: 0 2px 8px rgba(29, 18, 10, 0.05);
     }
-    .cruxly-card h3 {
-        color: #0B2545;
-        margin-top: 0;
-        margin-bottom: 8px;
-        font-size: 1.3rem;
-    }
-    .cruxly-card p, .cruxly-card li {
-        margin-top: 0;
-        margin-bottom: 8px;
-        font-size: 1.05rem;
-        line-height: 1.5;
+    .cruxly-card-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        border-bottom: 1px solid #E2DAC8;
+        padding-bottom: 8px;
     }
     .badge-tag {
         display: inline-block;
-        background-color: #E8EEF5;
-        color: #0B2545;
-        border: 1px solid #1B4965;
+        background-color: #EFE9DA;
+        color: #3C0612;
+        border: 1px solid #B8A98E;
         padding: 2px 10px;
         border-radius: 4px;
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         font-weight: bold;
-        margin-bottom: 8px;
+    }
+    .cruxly-dateline {
+        margin-left: auto;
+        font-size: 0.85rem;
+        color: #5C4938;
+        font-style: italic;
     }
 
-    /* Discreet Footer Note (DPR v1.1 Section 8 & 11) */
+    /* Bilingual Side-by-Side Grid & Bengali Typography */
+    .cruxly-bilingual-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 22px;
+        align-items: start;
+    }
+    .cruxly-headline-en {
+        font-family: "Playfair Display", "Times New Roman", serif !important;
+        color: #1D120A;
+        margin: 0 0 8px 0;
+        font-size: 1.28rem;
+        font-weight: 700;
+        line-height: 1.32;
+    }
+    .cruxly-body-en {
+        font-size: 1.03rem;
+        line-height: 1.55;
+        color: #2B1E12;
+        margin: 0;
+    }
+    .cruxly-headline-bn {
+        font-family: "Noto Serif Bengali", "Times New Roman", serif !important;
+        color: #1D120A;
+        margin: 0 0 8px 0;
+        font-size: 1.24rem;
+        font-weight: 700;
+        line-height: 1.42;
+    }
+    .cruxly-body-bn {
+        font-family: "Noto Serif Bengali", "Times New Roman", serif !important;
+        font-size: 1.02rem;
+        line-height: 1.65;
+        color: #2B1E12;
+        margin: 0;
+    }
+
+    /* Multi-Source Newspaper Reference Pills */
+    .cruxly-ref-row {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px dashed #C8BFA8;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 7px;
+    }
+    .cruxly-ref-label {
+        font-size: 0.88rem;
+        font-weight: bold;
+        color: #3C0612;
+    }
+    a.cruxly-ref-pill {
+        display: inline-block;
+        background-color: #FFFFFF;
+        color: #0B2545 !important;
+        border: 1px solid #8C7B65;
+        border-radius: 4px;
+        padding: 2px 9px;
+        font-size: 0.84rem;
+        font-weight: 600;
+        text-decoration: none !important;
+    }
+    a.cruxly-ref-pill:hover {
+        background-color: #3C0612;
+        color: #FFFFFF !important;
+        border-color: #3C0612;
+    }
+
+    /* Footer */
     .cruxly-footer {
         margin-top: 28px;
         padding: 16px 20px;
-        background-color: #E8EEF5;
-        border-top: 2px solid #1B4965;
+        background-color: #EFE9DA;
+        border-top: 2px solid #3C0612;
         border-radius: 6px;
-        font-size: 0.95rem;
-        color: #102033;
+        font-size: 0.94rem;
+        color: #1D120A;
         text-align: center;
         line-height: 1.6;
     }
     .cruxly-footer a {
-        color: #0B2545;
+        color: #3C0612;
         font-weight: bold;
         text-decoration: underline;
         margin: 0 8px;
@@ -187,6 +439,13 @@ st.markdown(
             height: auto;
             border-right: none;
             border-bottom: 2px solid #D4AF37;
+        }
+        .cruxly-bilingual-grid {
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+        .cruxly-dateline {
+            margin-left: 0;
         }
     }
     </style>
@@ -204,7 +463,7 @@ except Exception:
     st.stop()
 
 # ---------------------------------------------------------
-# 3. PUBLIC LEGAL & POLICY PAGES (?page=privacy / ?page=terms)
+# 3. PUBLIC LEGAL & POLICY PAGES (?page=charter / privacy / terms / guidelines)
 # ---------------------------------------------------------
 query_params = st.query_params
 active_page = query_params.get("page")
@@ -250,10 +509,12 @@ if "sb_session" in st.session_state:
 if not user:
     render_public_landing(supabase, logo_b64)
 else:
+    today_ist_str = datetime.now(IST).strftime("%A, %d %B %Y • IST Edition")
     st.markdown(
         f'<div class="hero-wrapper">'
         f'<img src="data:image/jpeg;base64,{logo_b64}" class="hero-logo" alt="Cruxly Logo" />'
         f'<div class="hero-banner-content">'
+        f'<div class="hero-dateline-strip">{today_ist_str}</div>'
         f'<div class="hero-welcome">Welcome to Cruxly — Intelligent News for Intelligent Readers.</div>'
         f'<p class="hero-subtext">Signed in as: <strong>{user.email}</strong></p>'
         f'</div>'
@@ -314,8 +575,10 @@ else:
         """
         <div class="cruxly-footer">
             <strong>Cruxly — Read deeper. Faster.</strong> | Readers are encouraged to support journalism by purchasing original newspaper editions.<br/>
+            <a href="?page=charter">Editorial Charter</a> |
             <a href="?page=terms">Copyright, Attribution &amp; Terms</a> |
-            <a href="?page=privacy">Privacy Policy</a>
+            <a href="?page=privacy">Privacy Policy</a> |
+            <a href="?page=guidelines">Reader Guidelines</a>
         </div>
         """,
         unsafe_allow_html=True,
