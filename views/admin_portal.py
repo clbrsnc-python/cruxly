@@ -11,6 +11,13 @@ from ingestion.sources import get_active_sources
 IST = pytz.timezone("Asia/Kolkata")
 
 
+def _extract_actor_id(user_obj) -> str:
+    """Safely extracts UUID string whether app.py passes user.id (str) or a Supabase User object."""
+    if isinstance(user_obj, str):
+        return user_obj
+    return str(getattr(user_obj, "id", "") or "")
+
+
 def _log_admin_action(
     supabase: Client,
     actor_id: str,
@@ -43,6 +50,8 @@ def _log_admin_action(
 
 def render_admin_portal(supabase: Client, user, profile: dict) -> None:
     """Renders the Super Admin / Admin governance console per DPR specifications."""
+    actor_id = _extract_actor_id(user)
+
     st.markdown(
         '<div class="cruxly-card">'
         '<h3>Administrator Governance Console</h3>'
@@ -96,7 +105,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                         supabase.table("users").update({"account_status": "approved"}).eq("id", uid).execute()
                         _log_admin_action(
                             supabase,
-                            user.id,
+                            actor_id,
                             "USER_APPROVAL",
                             "Approved reader account",
                             "users",
@@ -112,7 +121,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                         supabase.table("users").update({"account_status": "rejected"}).eq("id", uid).execute()
                         _log_admin_action(
                             supabase,
-                            user.id,
+                            actor_id,
                             "USER_REJECTION",
                             "Rejected reader account",
                             "users",
@@ -131,7 +140,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
             f'<div class="cruxly-card">'
             f'<h3>Active RSS Collection Registry ({len(sources)} Newspapers)</h3>'
             f'<p>Collects headlines and snippets across English, Bengali, and Hindi dailies, '
-            f'automatically excludes astrology/horoscope clutter, clusters related reports, '
+            f'automatically excludes astrology/horoscope clutter, clusters related reports across languages, '
             f'runs 2-pass Bengali copy-editing, and publishes consolidated bilingual briefings.</p>'
             f'</div>',
             unsafe_allow_html=True,
@@ -179,7 +188,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                 )
             _log_admin_action(
                 supabase,
-                user.id,
+                actor_id,
                 "INGESTION_RUN",
                 f"Executed {slot_choice} ingestion cycle (exhaustive={exhaustive_on})",
                 "stories",
@@ -216,7 +225,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                 supabase.table("genres").insert(seed_rows).execute()
                 _log_admin_action(
                     supabase,
-                    user.id,
+                    actor_id,
                     "GENRE_SEED",
                     "Seeded 12 official DPR genres",
                     "genres",
@@ -235,7 +244,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                     ).execute()
                     _log_admin_action(
                         supabase,
-                        user.id,
+                        actor_id,
                         "GENRE_CREATE",
                         f"Added genre {new_en.strip()}",
                         "genres",
@@ -272,7 +281,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                         supabase.table("genres").delete().eq("id", gid).execute()
                         _log_admin_action(
                             supabase,
-                            user.id,
+                            actor_id,
                             "GENRE_DELETE",
                             f"Reassigned '{g_en}' to '{target_genre}' and deleted genre",
                             "genres",
@@ -323,7 +332,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                         supabase.table("stories").update({"status": "published"}).eq("id", sid).execute()
                         _log_admin_action(
                             supabase,
-                            user.id,
+                            actor_id,
                             "STORY_PUBLISH",
                             "Published story",
                             "stories",
@@ -338,7 +347,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                         supabase.table("stories").update({"status": "flagged_review"}).eq("id", sid).execute()
                         _log_admin_action(
                             supabase,
-                            user.id,
+                            actor_id,
                             "STORY_FLAG",
                             "Flagged story for review",
                             "stories",
@@ -353,7 +362,7 @@ def render_admin_portal(supabase: Client, user, profile: dict) -> None:
                         supabase.table("stories").update({"status": "withheld_sensitive"}).eq("id", sid).execute()
                         _log_admin_action(
                             supabase,
-                            user.id,
+                            actor_id,
                             "STORY_WITHHOLD",
                             "Withheld sensitive story",
                             "stories",
