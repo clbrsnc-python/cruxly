@@ -1,5 +1,6 @@
 from datetime import datetime
 import html
+import re
 from urllib.parse import quote
 import pytz
 import streamlit as st
@@ -7,15 +8,6 @@ from supabase import Client
 from utils.supabase_client import get_pkce_pair
 
 IST = pytz.timezone("Asia/Kolkata")
-
-GOOGLE_G_SVG = """
-<svg width="22" height="22" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
-  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-</svg>
-""".strip()
 
 
 def _format_ist_short(raw_iso: str | None) -> str:
@@ -28,6 +20,12 @@ def _format_ist_short(raw_iso: str | None) -> str:
         return dt.astimezone(IST).strftime("%d %b %Y, %I:%M %p IST")
     except Exception:
         return str(raw_iso)[:16]
+
+
+def _normalize_publisher_name(raw_name: str) -> str:
+    """Normalizes publisher names so multiple URLs from the same paper count as 1 distinct source."""
+    clean = re.sub(r"\s*[-–—|:]\s*(kolkata|delhi|mumbai|national|bengal|editorial|opinion|live).*$", "", raw_name.strip(), flags=re.IGNORECASE)
+    return clean.strip().lower()
 
 
 def render_legal_page(active_page: str, logo_b64: str) -> bool:
@@ -122,8 +120,8 @@ def render_legal_page(active_page: str, logo_b64: str) -> bool:
 
 def _select_front_page_stories(supabase: Client) -> list[dict]:
     """
-    Fetches recent published stories and prioritizes at least 2 multi-source corroborated stories
-    (>= 2 distinct newspaper references) so the front page showcases genuine cross-verification.
+    Fetches recent published stories and strictly prioritizes stories corroborated across
+    >= 2 genuinely distinct newspaper publishers (never counting duplicate links from 1 outlet).
     """
     try:
         res = (
@@ -134,7 +132,7 @@ def _select_front_page_stories(supabase: Client) -> list[dict]:
             )
             .eq("status", "published")
             .order("published_at", desc=True)
-            .limit(35)
+            .limit(80)
             .execute()
         )
         rows = res.data or []
@@ -146,18 +144,18 @@ def _select_front_page_stories(supabase: Client) -> list[dict]:
 
     for row in rows:
         refs = row.get("story_references") or []
-        distinct_sources = {
-            (r.get("source_name") or "").strip()
+        distinct_publishers = {
+            _normalize_publisher_name(r.get("source_name") or "")
             for r in refs
             if (r.get("source_name") or "").strip()
         }
-        row["_source_count"] = len(distinct_sources) if distinct_sources else len(refs)
-        if row["_source_count"] >= 2:
+        distinct_publishers.discard("")
+        row["_distinct_publisher_count"] = len(distinct_publishers)
+        if len(distinct_publishers) >= 2:
             corroborated.append(row)
         else:
             single_source.append(row)
 
-    # Guarantee at least 2 corroborated stories first, then fill up to 3 total stories (1 lead + 2 columns)
     selected: list[dict] = []
     selected.extend(corroborated[:3])
     if len(selected) < 3:
@@ -166,7 +164,7 @@ def _select_front_page_stories(supabase: Client) -> list[dict]:
 
 
 def render_public_landing(supabase: Client, logo_b64: str) -> None:
-    """Renders the split-screen broadsheet landing page: left branding + Google OAuth, right print-newspaper front page."""
+    """Renders the equal-height split-screen broadsheet landing page with native top-frame Google OAuth."""
     _, code_challenge = get_pkce_pair()
     base_url = st.secrets["SUPABASE_URL"].rstrip("/")
     redirect_url = st.secrets.get("APP_REDIRECT_URL", "https://cruxly.streamlit.app")
@@ -182,24 +180,30 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
     left_col, right_col = st.columns([1.0, 1.3], gap="large")
 
     # ---------------------------------------------------------
-    # LEFT COLUMN: ENLARGED CRUXLY LOGO + MULTICOLOR GOOGLE SIGN-IN
+    # LEFT COLUMN: ENLARGED LOGO + 5 UNIFORM FEATURE BOXES + GOOGLE OAUTH
     # ---------------------------------------------------------
     with left_col:
         st.markdown(
             f"""
             <div class="landing-brand-panel">
-                <img src="data:image/jpeg;base64,{logo_b64}" class="landing-logo-img" alt="Cruxly Logo" />
-                <p class="landing-subtitle">
-                    An intelligent bilingual abridged newspaper service from leading English, Bengali, and Hindi dailies.
-                </p>
-                <div class="landing-feature-pill">📰 Available in Morning &amp; Evening Edition</div>
-                <div class="landing-feature-pill">🔄 Multi-Source Cross-Referencing &amp; Clustering</div>
-                <div class="landing-feature-pill">🌐 Bilingual English &amp; Bengali Briefings</div>
-                <div class="landing-google-wrap">
-                    <a href="{oauth_url}" target="_self" class="google-signin-btn">
-                        {GOOGLE_G_SVG}
-                        <span>Sign in with Google</span>
-                    </a>
+                <div>
+                    <img src="data:image/jpeg;base64,{logo_b64}" class="landing-logo-img" alt="Cruxly Logo" />
+                    <div class="landing-feature-pill">✨ Intelligent Bilingual News Briefings</div>
+                    <div class="landing-feature-pill">🗞️ Curated from English, Bengali &amp; Hindi Dailies</div>
+                    <div class="landing-feature-pill">📰 Available in Morning &amp; Evening Edition</div>
+                    <div class="landing-feature-pill">🔄 Multi-Source Cross-Referencing &amp; Clustering</div>
+                    <div class="landing-feature-pill">🌐 Direct Attribution Links to Original Publishers</div>
+                </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Native Streamlit link_button breaks out of Streamlit Cloud iframe cleanly (prevents Google 403)
+        # Styled via CSS in app.py with the multicolor Google "G" emblem
+        st.markdown('<div class="google-btn-holder">', unsafe_allow_html=True)
+        st.link_button("Sign in with Google", url=oauth_url, use_container_width=False)
+        st.markdown(
+            """
                 </div>
                 <div class="landing-credit">
                     Designed &amp; Crafted by: <span>Dr Joydip Chandra</span> | &copy; 2026 Cruxly
@@ -210,7 +214,7 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
         )
 
     # ---------------------------------------------------------
-    # RIGHT COLUMN: PRINT-STYLE BROADSHEET FRONT PAGE + POLICY LINKS
+    # RIGHT COLUMN: EQUAL-HEIGHT PRINT-STYLE DIGITAL BROADSHEET
     # ---------------------------------------------------------
     with right_col:
         previews = _select_front_page_stories(supabase)
@@ -220,10 +224,10 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
             genre = html.escape(item.get("primary_genre") or "General")
             geo = html.escape(item.get("geography") or "National")
             dateline = html.escape(_format_ist_short(item.get("published_at")))
-            src_count = item.get("_source_count", 1)
+            pub_count = item.get("_distinct_publisher_count", 1)
             corrob_tag = (
-                f' &bull; <span class="paper-corrob-badge">VERIFIED ACROSS {src_count} DAILIES</span>'
-                if src_count >= 2
+                f' &bull; <span class="paper-corrob-badge">VERIFIED ACROSS {pub_count} DAILIES</span>'
+                if pub_count >= 2
                 else ""
             )
 
@@ -234,7 +238,7 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
                 or "Sign in with Google to read the complete consolidated briefing and original newspaper links."
             ) if isinstance(sum_obj, dict) else str(sum_obj)
 
-            max_len = 230 if is_lead else 165
+            max_len = 225 if is_lead else 160
             brief_text = html.escape(raw_brief[:max_len] + ("..." if len(raw_brief) > max_len else ""))
 
             if is_lead:
@@ -274,15 +278,17 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
         st.markdown(
             f"""
             <div class="newsprint-sheet">
-                <div class="newsprint-masthead">
-                    <div class="newsprint-edition-bar">
-                        <span>DIGITAL BROADSHEET</span>
-                        <span>{today_ist}</span>
+                <div>
+                    <div class="newsprint-masthead">
+                        <div class="newsprint-edition-bar">
+                            <span>DIGITAL BROADSHEET</span>
+                            <span>{today_ist}</span>
+                        </div>
+                        <div class="newsprint-paper-title">THE CRUXLY DISPATCH</div>
+                        <div class="newsprint-paper-sub">Cross-Verified Front-Page Briefings &bull; Sign in for Full Bilingual Reports &amp; Source Links</div>
                     </div>
-                    <div class="newsprint-paper-title">THE CRUXLY DISPATCH</div>
-                    <div class="newsprint-paper-sub">Cross-Verified Front-Page Briefings &bull; Sign in for Full Bilingual Reports &amp; Source Links</div>
+                    {front_body_html}
                 </div>
-                {front_body_html}
                 <div class="newsprint-bottom-links">
                     <a href="?page=charter">Editorial Charter</a>
                     <span>&bull;</span>
