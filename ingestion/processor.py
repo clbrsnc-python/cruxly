@@ -49,19 +49,41 @@ def _clean_text(raw: str) -> str:
 
 
 def _polish_bengali_grammar(text: str) -> str:
-    """Fixes common LLM Bengali punctuation/suffix glitches and phonetic English loanwords."""
+    """
+    Fixes common LLM Hindi-calque artifacts, suffix glitches, and non-standard place spellings
+    to match standard Kolkata Bengali journalism (Anandabazar / Ei Samay house style).
+    """
     if not text:
         return text
-    # Fix case suffixes orphaned outside closing quotes: ‘এনকাউন্টার’ে -> ‘এনকাউন্টারে’
+
+    # 1. Fix Hindi '-varshiya' calques: ৬-বছরীর / ৮-বছরীয় / ৬ বছরী -> ৬ বছর বয়সী
+    text = re.sub(r"([০-৯0-9]+)[\s\-‑]*বছরীয়?[াীের]*", r"\1 বছর বয়সী", text)
+
+    # 2. Fix case suffixes orphaned outside closing quotes: ‘এনকাউন্টার’ে -> ‘এনকাউন্টারে’
     text = re.sub(r"([‘’'\"])([েয়কেতর])", r"\2\1", text)
-    # Replace awkward phonetic transliterations with standard Bengali journalistic terms
+
+    # 3. Standardize Kolkata Bengali press spellings for Indian places & journalistic terms
     replacements = {
+        "পঞ্চকুলা": "পাঁচকুলা",
         "ম্যানিফেস্টা": "নির্বাচনী ইস্তাহার",
         "ম্যানিফেস্টো": "নির্বাচনী ইস্তাহার",
+        "নয়া দিল্লি": "নয়াদিল্লি",
+        "নিউ দিল্লি": "নয়াদিল্লি",
+        "বেঙ্গালোর": "বেঙ্গালুরু",
+        "ব্যাঙ্গালোর": "বেঙ্গালুরু",
+        "বোম্বে": "মুম্বই",
+        "মাদ্রাজ": "চেন্নাই",
+        "উড়িষ্যা": "ওড়িশা",
+        "উড়িষ্যা": "ওড়িশা",
+        "ছত্তিশগড়": "ছত্তীসগঢ়",
+        "চন্ডিগড়": "চণ্ডীগড়",
+        "গুরগাঁও": "গুরুগ্রাম",
+        "এলাহাবাদ": "প্রয়াগরাজ",
     }
     for bad, good in replacements.items():
         text = text.replace(bad, good)
-    return text.strip()
+
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _extract_json_object(raw_text: str) -> dict:
@@ -261,31 +283,31 @@ def _build_synthesis_prompt(cluster: list[dict]) -> str:
     bn_guidance = (
         "Original Bengali newspaper notes are provided above—synthesize directly from the authentic Bengali reporting rather than doing literal word-for-word translation from English."
         if has_bn_source
-        else "Write natural, idiomatic Kolkata/West Bengal journalistic Bengali (চলিত বাংলা সংবাদশৈলী), NOT literal English-to-Bengali calques."
+        else "Write natural, idiomatic Kolkata/West Bengal journalistic Bengali (চলিত বাংলা সংবাদশৈলী), NOT literal English-to-Bengali or Hindi-to-Bengali calques."
     )
     return (
-        "You are a senior bilingual news editor for Cruxly in Kolkata. Synthesize the following news notes "
+        "You are a senior copy editor at a major Kolkata Bengali daily (like Anandabazar Patrika). Synthesize the following news notes "
         "into an original, objective, consolidated abridged report in BOTH English and standard Bengali (বাংলা লিপি).\n"
-        "CRITICAL RULES:\n"
+        "CRITICAL BENGALI EDITORIAL RULES:\n"
         f"1. {bn_guidance}\n"
-        "2. 'headline_bn' and 'in_brief_bn' MUST be written strictly in Bengali Unicode script (বাংলা বর্ণমালা). "
-        "Preserve exact subject-object meaning in Bengali: e.g., write 'কমিটির সদস্যদের নাম ঘোষণা' (announcement of committee members' names), NEVER 'কমিটির সদস্যদের ঘোষণা' (which wrongly means announcement by the members). "
-        "Attach Bengali case suffixes (-এ, -এর, -কে) directly to the word before any closing quotation mark (e.g., ‘এনকাউন্টারে’, NEVER ‘এনকাউন্টার’ে). "
-        "Use standard Bengali journalistic terms (e.g., 'নির্বাচনী ইস্তাহার' instead of 'ম্যানিফেস্টা'). "
-        "NEVER use Hindi (Devanagari) or Punjabi (Gurmukhi) script.\n"
-        "3. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"]. Use \"State\" for Indian state-level news, \"National\" for India-wide news, and \"International\" for global/foreign news.\n"
-        "4. If 'geography' is \"State\", set 'state_name' to the Indian state name (e.g., \"West Bengal\", \"Maharashtra\", \"Punjab\"); otherwise set 'state_name' to null.\n"
-        f"5. 'primary_genre' MUST be strictly one of the 12 approved genres: {genres_list}.\n"
-        "6. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT copy sentences verbatim.\n\n"
+        "2. NEVER use Hindi-calque age words like 'বছরী' or 'বছরীয়'. Always write '৬ বছর বয়সী', '৮ বছর বয়সী' (e.g., '৬ বছর বয়সী ছাত্রী').\n"
+        "3. Use authentic Kolkata Bengali spellings for Indian place names (e.g., 'পাঁচকুলা' NOT 'পঞ্চকুলা', 'নয়াদিল্লি', 'বেঙ্গালুরু', 'মুম্বই', 'ওড়িশা', 'চণ্ডীগড়').\n"
+        "4. Preserve exact subject-object meaning in Bengali: e.g., write 'কমিটির সদস্যদের নাম ঘোষণা' (announcement of committee members' names), NEVER 'কমিটির সদস্যদের ঘোষণা'.\n"
+        "5. Attach Bengali case suffixes (-এ, -এর, -কে) directly to the word before any closing quotation mark (e.g., ‘এনকাউন্টারে’, NEVER ‘এনকাউন্টার’ে).\n"
+        "6. Use standard Bengali journalistic terms (e.g., 'নির্বাচনী ইস্তাহার' instead of 'ম্যানিফেস্টা'). NEVER use Hindi (Devanagari) or Punjabi (Gurmukhi) script.\n"
+        "7. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"].\n"
+        "8. If 'geography' is \"State\", set 'state_name' to the Indian state name (e.g., \"West Bengal\", \"Haryana\", \"Punjab\"); otherwise set 'state_name' to null.\n"
+        f"9. 'primary_genre' MUST be strictly one of the 12 approved genres: {genres_list}.\n"
+        "10. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT copy sentences verbatim.\n\n"
         "Respond ONLY with a raw JSON object containing EXACTLY these keys:\n"
         '- "headline_en": Concise, factual English headline (max 15 words).\n'
-        '- "headline_bn": Natural, accurate Bengali headline in Bengali Unicode script.\n'
+        '- "headline_bn": Natural, idiomatic Bengali headline in Bengali Unicode script.\n'
         '- "primary_genre": Exact string from the 12 approved genres above.\n'
         '- "secondary_genres": Array of 0 to 2 additional genres from the 12 approved genres.\n'
         '- "geography": Exact string from ["State", "National", "International"].\n'
         '- "state_name": Indian state name if geography is "State", else null.\n'
         '- "in_brief_en": Unified 3-5 sentence objective English summary covering what happened and key context.\n'
-        '- "in_brief_bn": Unified 3-5 sentence objective Bengali summary in Bengali Unicode script only.\n\n'
+        '- "in_brief_bn": Unified 3-5 sentence objective Bengali summary in standard Kolkata newspaper Bengali.\n\n'
         f"Source Notes:\n{source_notes}"
     )
 
@@ -359,9 +381,9 @@ def synthesize_cluster(
                         {
                             "role": "system",
                             "content": (
-                                "You are a precise bilingual news editor in Kolkata. Output valid JSON only. "
-                                "Write natural, idiomatic Bengali headlines and summaries strictly in Bengali Unicode script (বাংলা), "
-                                "preserving exact grammatical agency (who acted vs. who was named)."
+                                "You are a senior copy editor at a Kolkata Bengali newspaper. Output valid JSON only. "
+                                "Write natural, idiomatic Kolkata Bengali (never Hindi calques like 'বছরী' or 'বছরীয়'; always use 'বছর বয়সী') "
+                                "and standard Bengali place spellings."
                             ),
                         },
                         {"role": "user", "content": prompt},
