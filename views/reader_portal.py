@@ -1,512 +1,410 @@
 from datetime import datetime
+import html
 import pytz
 import streamlit as st
 from supabase import Client
-from ingestion.processor import APPROVED_GENRES, fetch_approved_genres
-from ingestion.sources import get_active_sources
 
 IST = pytz.timezone("Asia/Kolkata")
+PAGE_SIZE = 25
 
 
-def _format_story_date(published_at_raw: str | None) -> str:
-    """Formats ISO timestamp into date-only '16 Nov 2026' without time."""
-    if not published_at_raw:
-        return datetime.now(IST).strftime("%d %b %Y")
+def _extract_user_id(user_obj) -> str:
+    """Safely extracts UUID string whether app.py passes user.id (str) or a Supabase User object."""
+    if isinstance(user_obj, str):
+        return user_obj
+    return str(getattr(user_obj, "id", "") or "")
+
+
+def _format_ist_timestamp(raw_iso: str | None) -> str:
+    """Formats ISO timestamp into readable Indian Standard Time (IST) newspaper dateline."""
+    if not raw_iso:
+        return ""
     try:
-        dt = datetime.fromisoformat(published_at_raw.replace("Z", "+00:00"))
-        return dt.astimezone(IST).strftime("%d %b %Y")
+        dt = datetime.fromisoformat(raw_iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = pytz.UTC.localize(dt)
+        dt_ist = dt.astimezone(IST)
+        return dt_ist.strftime("%d %b %Y, %I:%M %p IST")
     except Exception:
-        return str(published_at_raw)[:10]
+        return str(raw_iso)[:16]
 
 
-def _pin_to_state(pin_code: str) -> str:
-    """Resolves a 6-digit Indian PIN code to its corresponding State/UT."""
-    digits = "".join(ch for ch in (pin_code or "") if ch.isdigit())
-    if len(digits) < 2:
-        return "West Bengal"
-    prefix2 = int(digits[:2])
-    prefix3 = int(digits[:3]) if len(digits) >= 3 else 0
-
-    if 70 <= prefix2 <= 74:
-        return "West Bengal"
-    if prefix2 == 11:
-        return "Delhi"
-    if 12 <= prefix2 <= 13:
-        return "Haryana"
-    if 14 <= prefix2 <= 16:
-        return "Punjab"
-    if prefix2 == 17:
-        return "Himachal Pradesh"
-    if 18 <= prefix2 <= 19:
-        return "Jammu & Kashmir / Ladakh"
-    if 20 <= prefix2 <= 28:
-        return "Uttar Pradesh / Uttarakhand"
-    if 30 <= prefix2 <= 34:
-        return "Rajasthan"
-    if 36 <= prefix2 <= 39:
-        return "Gujarat"
-    if 40 <= prefix2 <= 44:
-        return "Maharashtra / Goa"
-    if 45 <= prefix2 <= 49:
-        return "Madhya Pradesh / Chhattisgarh"
-    if 50 <= prefix2 <= 53:
-        return "Telangana / Andhra Pradesh"
-    if 56 <= prefix2 <= 59:
-        return "Karnataka"
-    if 60 <= prefix2 <= 64:
-        return "Tamil Nadu / Puducherry"
-    if 67 <= prefix2 <= 69:
-        return "Kerala"
-    if 75 <= prefix2 <= 77:
-        return "Odisha"
-    if prefix2 == 78:
-        return "Assam"
-    if prefix3 in (790, 791, 792):
-        return "Arunachal Pradesh"
-    if prefix3 in (793, 794):
-        return "Meghalaya"
-    if prefix3 == 795:
-        return "Manipur"
-    if prefix3 == 796:
-        return "Mizoram"
-    if prefix3 in (797, 798):
-        return "Nagaland"
-    if prefix3 == 799:
-        return "Tripura"
-    if 80 <= prefix2 <= 85:
-        return "Bihar / Jharkhand"
-    return "West Bengal"
-
-
-def _get_in_brief_en(summary_en: dict) -> str:
-    """Returns unified English 'In brief' text, maintaining backward compatibility."""
-    if not summary_en:
-        return "—"
-    if summary_en.get("in_brief"):
-        return str(summary_en["in_brief"]).replace("\n", " ")
-    wh = (summary_en.get("what_happened") or "").strip()
-    kd = (summary_en.get("key_details") or "").strip()
-    combined = f"{wh} {kd}".strip()
-    return combined.replace("\n", " ") if combined else "—"
-
-
-def _get_in_brief_bn(summary_bn: dict) -> str:
-    """Returns unified Bengali 'সংক্ষেপে' text, maintaining backward compatibility."""
-    if not summary_bn:
-        return "—"
-    val = summary_bn.get("in_brief") or summary_bn.get("what_happened") or "—"
-    return str(val).replace("\n", " ")
-
-
-def _load_user_preferences(supabase: Client, user_id: str, valid_genres: list[str]) -> dict:
-    """Loads persisted reader preferences from public.user_preferences."""
-    defaults = {
-        "selected_state": "West Bengal",
-        "genre_priorities": {g: "Medium" for g in valid_genres},
-        "excluded_sources": [],
-    }
+def _fetch_saved_story_ids(supabase: Client, user_id: str) -> set[str]:
+    """Loads the logged-in reader's bookmarked story IDs from public.saved_stories."""
+    if not user_id:
+        return set()
     try:
         res = (
-            supabase.table("user_preferences")
-            .select("selected_state, genre_priorities, excluded_sources")
+            supabase.table("saved_stories")
+            .select("story_id")
             .eq("user_id", user_id)
-            .limit(1)
             .execute()
         )
-        if res.data:
-            row = res.data[0]
-            saved_prios = row.get("genre_priorities") or {}
-            merged_prios = {g: saved_prios.get(g, "Medium") for g in valid_genres}
-            return {
-                "selected_state": row.get("selected_state") or "West Bengal",
-                "genre_priorities": merged_prios,
-                "excluded_sources": row.get("excluded_sources") or [],
-            }
+        return {str(row["story_id"]) for row in (res.data or []) if row.get("story_id")}
+    except Exception:
+        return set()
+
+
+def _toggle_save_story(supabase: Client, user_id: str, story_id: str, is_currently_saved: bool) -> None:
+    """Adds or removes a bookmark in public.saved_stories."""
+    if not user_id or not story_id:
+        return
+    try:
+        if is_currently_saved:
+            (
+                supabase.table("saved_stories")
+                .delete()
+                .eq("user_id", user_id)
+                .eq("story_id", story_id)
+                .execute()
+            )
+        else:
+            (
+                supabase.table("saved_stories")
+                .upsert({"user_id": user_id, "story_id": story_id}, on_conflict="user_id,story_id")
+                .execute()
+            )
+    except Exception as exc:
+        st.error(f"Could not update bookmark: {exc}")
+
+
+def _fetch_active_genres(supabase: Client) -> list[str]:
+    """Fetches active genre names for the reader filter dropdown."""
+    try:
+        res = (
+            supabase.table("genres")
+            .select("name_en")
+            .eq("is_active", True)
+            .order("id")
+            .execute()
+        )
+        names = [r["name_en"] for r in (res.data or []) if r.get("name_en")]
+        if names:
+            return names
     except Exception:
         pass
-    return defaults
+    return [
+        "Politics & Governance",
+        "Education",
+        "Science & Technology",
+        "Business & Economy",
+        "Health",
+        "Sports",
+        "Entertainment",
+        "Environment & Climate",
+        "Crime & Law",
+        "Agriculture & Rural Affairs",
+        "Career & Employment",
+        "Culture & Literature",
+    ]
 
 
-def _render_story_cards(
+def _fetch_stories_page(
     supabase: Client,
-    user,
-    stories: list[dict],
-    lang_choice: str,
-    reader_state: str,
-    excluded: set[str],
-    key_prefix: str = "feed",
-) -> None:
-    """Renders bilingual story cards with date below title, unified In brief, and bookmark button."""
-    for story in stories:
-        s_id = story["id"]
-        summary_en = story.get("summary_en") or {}
-        summary_bn = story.get("summary_bn") or {}
-        refs = story.get("story_references") or []
-        date_str = _format_story_date(story.get("published_at"))
-
-        geo_label = story.get("geography", "National")
-        story_state = story.get("state_name") or reader_state
-        geo_badge = f"State ({story_state})" if geo_label == "State" else geo_label
-
-        headline_en = story.get("headline_en", "Untitled Report")
-        headline_bn = story.get("headline_bn") or summary_bn.get("headline_bn") or headline_en
-
-        if lang_choice == "Bengali (বাংলা)":
-            title_html = f"<h3>{headline_bn}</h3>"
-        elif lang_choice == "Bilingual (English + বাংলা)":
-            title_html = f"<h3>{headline_en}<br><span style='font-size: 1.05rem; color: #1B4965;'>{headline_bn}</span></h3>"
-        else:
-            title_html = f"<h3>{headline_en}</h3>"
-
-        date_html = f'<p style="font-size: 0.9rem; color: #4A6572; margin-top: -0.35rem; margin-bottom: 0.65rem;"><strong>Date:</strong> {date_str}</p>'
-
-        links_html = ""
-        if refs:
-            anchors = " | ".join(
-                f'<a href="{r["article_url"]}" target="_blank" rel="noopener noreferrer">{r["source_name"]}</a>'
-                for r in refs
-                if r.get("article_url") and r.get("source_name") not in excluded
-            )
-            if anchors:
-                links_html = f'<p style="font-size: 0.95rem; color: #1B4965;"><strong>Original Reporting:</strong> {anchors}</p>'
-        elif summary_en.get("sources"):
-            links_html = f'<p style="font-size: 0.95rem; color: #1B4965;"><strong>Sources:</strong> {", ".join(summary_en["sources"])}</p>'
-
-        en_html = ""
-        if lang_choice in ("English", "Bilingual (English + বাংলা)"):
-            en_html = f"<p><strong>In brief:</strong> {_get_in_brief_en(summary_en)}</p>"
-
-        bn_html = ""
-        if lang_choice in ("Bengali (বাংলা)", "Bilingual (English + বাংলা)") and summary_bn:
-            bn_html = f"<p><strong>সংক্ষেপে:</strong> {_get_in_brief_bn(summary_bn)}</p>"
-
-        card_html = (
-            f'<div class="cruxly-card">'
-            f'<span class="badge-tag">{story.get("primary_genre", "Politics & Governance")} | {geo_badge}</span>'
-            f'{title_html}'
-            f'{date_html}'
-            f'{en_html}{bn_html}{links_html}'
-            f'</div>'
-        )
-        st.markdown(card_html, unsafe_allow_html=True)
-
-        if st.button("Save Story", key=f"{key_prefix}_bm_{s_id}"):
-            try:
-                supabase.table("saved_news").upsert(
-                    {
-                        "user_id": user.id,
-                        "story_id": s_id,
-                        "saved_at": datetime.now(IST).isoformat(),
-                    }
-                ).execute()
-                st.success("Story saved to Saved News.")
-            except Exception as bm_exc:
-                st.error(f"Could not save story: {bm_exc}")
-
-
-def render_reader_portal(supabase: Client, user, profile: dict) -> None:
-    """Renders the approved reader workspace: Live Feed, Editions, Archive, Saved News, and Preferences."""
-    active_genre_rows = fetch_approved_genres(supabase)
-    valid_genres = [g["name_en"] for g in active_genre_rows] or APPROVED_GENRES
-
-    if "prefs_loaded" not in st.session_state:
-        persisted = _load_user_preferences(supabase, user.id, valid_genres)
-        st.session_state["reader_pin"] = "741235"
-        st.session_state["reader_state"] = persisted["selected_state"]
-        st.session_state["excluded_sources"] = persisted["excluded_sources"]
-        st.session_state["genre_priorities"] = persisted["genre_priorities"]
-        st.session_state["prefs_loaded"] = True
-
-    st.markdown(
-        '<div class="static-nav">'
-        '<span class="nav-pill nav-home">Live Feed</span>'
-        '<span class="nav-pill nav-edition">Morning / Evening Editions</span>'
-        '<span class="nav-pill nav-archive">3-Month Archive</span>'
-        '<span class="nav-pill nav-saved">Saved News</span>'
-        '<span class="nav-pill nav-prefs">Preferences</span>'
-        '</div>',
-        unsafe_allow_html=True,
+    edition_filter: str,
+    geo_filter: str,
+    genre_filter: str,
+    search_query: str,
+    limit_count: int,
+) -> tuple[list[dict], int]:
+    """
+    Fetches published stories along with ALL linked Bengali, English, and Hindi newspaper references
+    via relational embedding so multi-source links never get dropped.
+    """
+    select_cols = (
+        "id, headline_en, headline_bn, primary_genre, secondary_genres, "
+        "geography, state_name, edition_slot, summary_en, summary_bn, published_at, "
+        "story_references(source_name, article_url, hindi_original_headline)"
+    )
+    query = (
+        supabase.table("stories")
+        .select(select_cols, count="exact")
+        .eq("status", "published")
     )
 
-    tab_feed, tab_editions, tab_archive, tab_saved, tab_prefs = st.tabs(
+    if edition_filter == "Morning Edition":
+        query = query.eq("edition_slot", "morning")
+    elif edition_filter == "Evening Edition":
+        query = query.eq("edition_slot", "evening")
+
+    if geo_filter != "All":
+        query = query.eq("geography", geo_filter)
+
+    if genre_filter != "All":
+        query = query.eq("primary_genre", genre_filter)
+
+    clean_q = (search_query or "").strip()
+    if clean_q:
+        safe_q = clean_q.replace(",", " ").replace("%", "")
+        query = query.or_(f"headline_en.ilike.%{safe_q}%,headline_bn.ilike.%{safe_q}%")
+
+    res = query.order("published_at", desc=True).range(0, max(limit_count - 1, 0)).execute()
+    rows = res.data or []
+    total_count = res.count if getattr(res, "count", None) is not None else len(rows)
+    return rows, total_count
+
+
+def _fetch_saved_stories_full(supabase: Client, saved_ids: set[str]) -> list[dict]:
+    """Fetches full story cards and references for all bookmarked stories."""
+    if not saved_ids:
+        return []
+    select_cols = (
+        "id, headline_en, headline_bn, primary_genre, secondary_genres, "
+        "geography, state_name, edition_slot, summary_en, summary_bn, published_at, "
+        "story_references(source_name, article_url, hindi_original_headline)"
+    )
+    try:
+        res = (
+            supabase.table("stories")
+            .select(select_cols)
+            .in_("id", list(saved_ids))
+            .order("published_at", desc=True)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        return []
+
+
+def _render_story_card(
+    supabase: Client,
+    story: dict,
+    lang_mode: str,
+    user_id: str,
+    saved_ids: set[str],
+    key_prefix: str,
+) -> None:
+    """Renders an individual editorial briefing card with multi-language source links, Save, and Share."""
+    sid = str(story["id"])
+    is_saved = sid in saved_ids
+
+    h_en = html.escape(story.get("headline_en") or "")
+    h_bn = html.escape(story.get("headline_bn") or "")
+
+    sum_en_obj = story.get("summary_en") or {}
+    sum_bn_obj = story.get("summary_bn") or {}
+    brief_en = html.escape(
+        sum_en_obj.get("in_brief") if isinstance(sum_en_obj, dict) else str(sum_en_obj)
+    )
+    brief_bn = html.escape(
+        sum_bn_obj.get("in_brief") if isinstance(sum_bn_obj, dict) else str(sum_bn_obj)
+    )
+
+    genre = html.escape(story.get("primary_genre") or "General")
+    geo = html.escape(story.get("geography") or "National")
+    state_name = story.get("state_name")
+    geo_label = f"{geo} ({html.escape(state_name)})" if (geo == "State" and state_name) else geo
+    slot_label = html.escape((story.get("edition_slot") or "live").upper())
+    dateline = html.escape(_format_ist_timestamp(story.get("published_at")))
+
+    refs = story.get("story_references") or []
+    seen_urls: set[str] = set()
+    unique_refs: list[dict] = []
+    for r in refs:
+        url = (r.get("article_url") or "").strip()
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique_refs.append(r)
+
+    ref_links_html = ""
+    if unique_refs:
+        pills = []
+        for r in unique_refs:
+            src_name = html.escape(r.get("source_name") or "Source")
+            src_url = html.escape(r.get("article_url") or "#", quote=True)
+            pills.append(
+                f'<a href="{src_url}" target="_blank" rel="noopener noreferrer" '
+                f'class="cruxly-ref-pill">{src_name} ↗</a>'
+            )
+        ref_links_html = (
+            f'<div class="cruxly-ref-row">'
+            f'<span class="cruxly-ref-label">Sources ({len(unique_refs)}):</span> '
+            f'{"".join(pills)}'
+            f'</div>'
+        )
+
+    if lang_mode == "বাংলা (Bengali)":
+        body_html = (
+            f'<h3 class="cruxly-headline-bn">{h_bn or h_en}</h3>'
+            f'<p class="cruxly-body-bn">{brief_bn or brief_en}</p>'
+        )
+    elif lang_mode == "Bilingual (Side-by-Side)":
+        body_html = (
+            f'<div class="cruxly-bilingual-grid">'
+            f'<div><h3 class="cruxly-headline-en">{h_en}</h3><p class="cruxly-body-en">{brief_en}</p></div>'
+            f'<div><h3 class="cruxly-headline-bn">{h_bn or h_en}</h3><p class="cruxly-body-bn">{brief_bn or brief_en}</p></div>'
+            f'</div>'
+        )
+    else:
+        body_html = (
+            f'<h3 class="cruxly-headline-en">{h_en}</h3>'
+            f'<p class="cruxly-body-en">{brief_en}</p>'
+        )
+
+    card_html = (
+        f'<article class="cruxly-card">'
+        f'<div class="cruxly-card-meta">'
+        f'<span class="badge-tag">{genre}</span>'
+        f'<span class="badge-tag">{geo_label}</span>'
+        f'<span class="badge-tag">{slot_label}</span>'
+        f'<span class="cruxly-dateline">{dateline}</span>'
+        f'</div>'
+        f'{body_html}'
+        f'{ref_links_html}'
+        f'</article>'
+    )
+    st.markdown(card_html, unsafe_allow_html=True)
+
+    act_col1, act_col2, _ = st.columns([1.3, 1.3, 5.4])
+    with act_col1:
+        save_label = "★ Saved" if is_saved else "☆ Save"
+        if st.button(save_label, key=f"{key_prefix}_save_{sid}"):
+            _toggle_save_story(supabase, user_id, sid, is_saved)
+            st.rerun()
+    with act_col2:
+        with st.popover("↗ Share", use_container_width=False):
+            primary_link = unique_refs[0]["article_url"] if unique_refs else ""
+            share_text = (
+                f"{story.get('headline_en') or ''}\n"
+                f"{story.get('headline_bn') or ''}\n\n"
+                f"{(sum_en_obj.get('in_brief') if isinstance(sum_en_obj, dict) else '')}\n"
+                f"{f'Source: {primary_link}' if primary_link else ''}"
+            ).strip()
+            st.caption("Click the copy icon on the right to copy this briefing:")
+            st.code(share_text, language=None)
+
+
+def render_reader_portal(supabase: Client, user, profile: dict | None = None) -> None:
+    """Renders the bilingual editorial Reader Portal with Edition views, Saved News, and full archive pagination."""
+    user_id = _extract_user_id(user)
+    saved_ids = _fetch_saved_story_ids(supabase, user_id)
+
+    if "reader_feed_limit" not in st.session_state:
+        st.session_state.reader_feed_limit = PAGE_SIZE
+
+    # Top Editorial Filter Bar
+    f1, f2, f3, f4 = st.columns([1.4, 1.2, 1.5, 1.9])
+    with f1:
+        lang_mode = st.selectbox(
+            "Reading Language",
+            ["Bilingual (Side-by-Side)", "English", "বাংলা (Bengali)"],
+            key="reader_lang_mode",
+        )
+    with f2:
+        geo_filter = st.selectbox(
+            "Geography",
+            ["All", "State", "National", "International"],
+            key="reader_geo_filter",
+        )
+    with f3:
+        genres = _fetch_active_genres(supabase)
+        genre_filter = st.selectbox(
+            "Genre",
+            ["All"] + genres,
+            key="reader_genre_filter",
+        )
+    with f4:
+        search_query = st.text_input(
+            "Search Headlines",
+            placeholder="Keyword in English or বাংলা...",
+            key="reader_search_query",
+        )
+
+    tab_all, tab_morning, tab_evening, tab_saved = st.tabs(
         [
-            "Live Feed",
-            "Morning / Evening Editions",
-            "3-Month Archive",
-            "Saved News",
-            "Preferences",
+            "All / Live Feed",
+            "Morning Edition (06:00 AM)",
+            "Evening Edition (06:00 PM)",
+            f"Saved News ({len(saved_ids)})",
         ]
     )
 
-    # 1. LIVE FEED
-    with tab_feed:
-        f_col1, f_col2, f_col3 = st.columns([2.2, 1.3, 1.8])
-        with f_col1:
-            lang_choice = st.radio(
-                "Reading Language",
-                ["English", "Bengali (বাংলা)", "Bilingual (English + বাংলা)"],
-                horizontal=True,
-                key="feed_lang",
-            )
-        with f_col2:
-            geo_filter = st.selectbox(
-                f"Geography (State: {st.session_state['reader_state']})",
-                ["All", "State", "National", "International"],
-                key="feed_geo_filter",
-            )
-        with f_col3:
-            genre_filter = st.selectbox(
-                "Subject / Genre (Approved DPR Categories)",
-                ["All Genres"] + valid_genres,
-                key="feed_genre_filter",
-            )
-
+    with tab_all:
         try:
-            query = (
-                supabase.table("stories")
-                .select("*, story_references(source_name, article_url, hindi_original_headline)")
-                .eq("status", "published")
+            stories, total_count = _fetch_stories_page(
+                supabase=supabase,
+                edition_filter="All",
+                geo_filter=geo_filter,
+                genre_filter=genre_filter,
+                search_query=search_query,
+                limit_count=st.session_state.reader_feed_limit,
             )
-            if geo_filter != "All":
-                query = query.eq("geography", geo_filter)
-            if genre_filter != "All Genres":
-                query = query.eq("primary_genre", genre_filter)
-
-            stories_res = query.order("published_at", desc=True).limit(30).execute()
-            stories = stories_res.data or []
         except Exception as exc:
-            stories = []
-            st.error(f"Could not load published stories: {exc}")
+            stories, total_count = [], 0
+            st.error(f"Could not load stories: {exc}")
 
-        excluded = set(st.session_state.get("excluded_sources") or [])
-        if excluded and stories:
-            filtered_stories = []
-            for s in stories:
-                refs = s.get("story_references") or []
-                ref_names = {r.get("source_name") for r in refs if r.get("source_name")}
-                if not ref_names or not ref_names.issubset(excluded):
-                    filtered_stories.append(s)
-            if filtered_stories:
-                stories = filtered_stories
-
-        priority_rank = {"High": 0, "Medium": 1, "Low": 2}
-        g_prios = st.session_state.get("genre_priorities") or {}
-        stories.sort(
-            key=lambda s: (
-                priority_rank.get(g_prios.get(s.get("primary_genre"), "Medium"), 1),
-            )
-        )
-
+        st.caption(f"Showing {len(stories)} of {total_count} consolidated briefings")
         if not stories:
-            st.markdown(
-                '<div class="cruxly-card">'
-                '<h3>No Stories Match Current Filter</h3>'
-                '<p>Switch Geography back to <strong>All</strong> or Subject / Genre back to <strong>All Genres</strong> to view all published briefings.</p>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+            st.info("No stories match the current filters.")
         else:
-            _render_story_cards(
-                supabase=supabase,
-                user=user,
-                stories=stories,
-                lang_choice=lang_choice,
-                reader_state=st.session_state["reader_state"],
-                excluded=excluded,
-                key_prefix="live",
-            )
+            for story in stories:
+                _render_story_card(supabase, story, lang_mode, user_id, saved_ids, "all")
 
-    # 2. MORNING / EVENING EDITIONS
-    with tab_editions:
-        ed_col1, ed_col2 = st.columns([1.8, 2.2])
-        with ed_col1:
-            edition_choice = st.radio(
-                "Select Consolidated Edition",
-                ["Morning Edition (06:00 AM IST)", "Evening Edition (06:00 PM IST)"],
-                horizontal=True,
-                key="edition_slot_radio",
-            )
-        with ed_col2:
-            ed_lang = st.radio(
-                "Edition Language",
-                ["English", "Bengali (বাংলা)", "Bilingual (English + বাংলা)"],
-                horizontal=True,
-                key="edition_lang_radio",
-            )
+            if len(stories) < total_count:
+                if st.button(
+                    f"Load More Stories ({total_count - len(stories)} remaining)",
+                    type="primary",
+                    key="load_more_all_btn",
+                ):
+                    st.session_state.reader_feed_limit += PAGE_SIZE
+                    st.rerun()
 
-        slot_key = "morning" if "Morning" in edition_choice else "evening"
+    with tab_morning:
         try:
-            ed_res = (
-                supabase.table("stories")
-                .select("*, story_references(source_name, article_url, hindi_original_headline)")
-                .eq("status", "published")
-                .eq("edition_slot", slot_key)
-                .order("published_at", desc=True)
-                .limit(20)
-                .execute()
-            )
-            ed_stories = ed_res.data or []
-        except Exception as ed_exc:
-            ed_stories = []
-            st.error(f"Could not load {slot_key} edition: {ed_exc}")
-
-        if not ed_stories:
-            st.markdown(
-                f'<div class="cruxly-card">'
-                f'<h3>{edition_choice} — Awaiting Next Scheduled Dispatch</h3>'
-                f'<p>No stories have been dispatched specifically under the <strong>{slot_key}</strong> slot yet. '
-                f'Administrators can trigger a {slot_key} edition cycle from the Administrator Console, or view all latest stories in the Live Feed.</p>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            _render_story_cards(
+            m_stories, m_total = _fetch_stories_page(
                 supabase=supabase,
-                user=user,
-                stories=ed_stories,
-                lang_choice=ed_lang,
-                reader_state=st.session_state["reader_state"],
-                excluded=set(st.session_state.get("excluded_sources") or []),
-                key_prefix=f"ed_{slot_key}",
+                edition_filter="Morning Edition",
+                geo_filter=geo_filter,
+                genre_filter=genre_filter,
+                search_query=search_query,
+                limit_count=st.session_state.reader_feed_limit,
             )
+        except Exception as exc:
+            m_stories, m_total = [], 0
+            st.error(f"Could not load Morning Edition: {exc}")
 
-    # 3. 3-MONTH ARCHIVE
-    with tab_archive:
-        search_q = st.text_input("Search 3-month verified archive by keyword, topic, or location", key="archive_search")
-        if search_q:
-            try:
-                arch_res = (
-                    supabase.table("stories")
-                    .select("id, headline_en, headline_bn, primary_genre, geography, published_at")
-                    .eq("status", "published")
-                    .ilike("headline_en", f"%{search_q}%")
-                    .order("published_at", desc=True)
-                    .limit(25)
-                    .execute()
-                )
-                results = arch_res.data or []
-                if not results:
-                    st.info("No archived reports matched your search term.")
-                for row in results:
-                    r_date = _format_story_date(row.get("published_at"))
-                    arch_card_html = (
-                        f'<div class="cruxly-card">'
-                        f'<span class="badge-tag">{row.get("primary_genre", "News")} | {row.get("geography", "National")}</span>'
-                        f'<h3>{row.get("headline_en", "Untitled")}</h3>'
-                        f'<p style="font-size: 0.9rem; color: #4A6572; margin-top: -0.35rem;"><strong>Date:</strong> {r_date}</p>'
-                        f'</div>'
-                    )
-                    st.markdown(arch_card_html, unsafe_allow_html=True)
-            except Exception as arch_exc:
-                st.error(f"Archive search error: {arch_exc}")
+        st.caption(f"Morning Edition: showing {len(m_stories)} of {m_total} briefings")
+        if not m_stories:
+            st.info("No stories dispatched specifically under the morning slot for these filters.")
+        else:
+            for story in m_stories:
+                _render_story_card(supabase, story, lang_mode, user_id, saved_ids, "morning")
 
-    # 4. SAVED NEWS (WIRED TO public.saved_news)
+            if len(m_stories) < m_total:
+                if st.button("Load More Morning Stories", key="load_more_morning_btn"):
+                    st.session_state.reader_feed_limit += PAGE_SIZE
+                    st.rerun()
+
+    with tab_evening:
+        try:
+            e_stories, e_total = _fetch_stories_page(
+                supabase=supabase,
+                edition_filter="Evening Edition",
+                geo_filter=geo_filter,
+                genre_filter=genre_filter,
+                search_query=search_query,
+                limit_count=st.session_state.reader_feed_limit,
+            )
+        except Exception as exc:
+            e_stories, e_total = [], 0
+            st.error(f"Could not load Evening Edition: {exc}")
+
+        st.caption(f"Evening Edition: showing {len(e_stories)} of {e_total} briefings")
+        if not e_stories:
+            st.info("No stories dispatched specifically under the evening slot for these filters.")
+        else:
+            for story in e_stories:
+                _render_story_card(supabase, story, lang_mode, user_id, saved_ids, "evening")
+
+            if len(e_stories) < e_total:
+                if st.button("Load More Evening Stories", key="load_more_evening_btn"):
+                    st.session_state.reader_feed_limit += PAGE_SIZE
+                    st.rerun()
+
     with tab_saved:
-        try:
-            saved_res = (
-                supabase.table("saved_news")
-                .select("story_id, saved_at, stories(id, headline_en, headline_bn, primary_genre, geography, published_at)")
-                .eq("user_id", user.id)
-                .order("saved_at", desc=True)
-                .execute()
-            )
-            saved_items = saved_res.data or []
-        except Exception:
-            saved_items = []
-
-        if not saved_items:
-            st.info("You have not saved any stories yet.")
+        saved_stories = _fetch_saved_stories_full(supabase, saved_ids)
+        if not saved_stories:
+            st.info("You haven't saved any stories yet. Click '☆ Save' on any briefing card to bookmark it here.")
         else:
-            for item in saved_items:
-                st_info = item.get("stories") or {}
-                s_date = _format_story_date(st_info.get("published_at"))
-                saved_card_html = (
-                    f'<div class="cruxly-card">'
-                    f'<span class="badge-tag">{st_info.get("primary_genre", "Saved")} | {st_info.get("geography", "National")}</span>'
-                    f'<h3>{st_info.get("headline_en", "Saved Report")}</h3>'
-                    f'<p style="font-size: 0.9rem; color: #4A6572; margin-top: -0.35rem;"><strong>Date:</strong> {s_date}</p>'
-                    f'</div>'
-                )
-                st.markdown(saved_card_html, unsafe_allow_html=True)
-
-    # 5. PREFERENCES (PERSISTED TO public.user_preferences)
-    with tab_prefs:
-        prefs_card_html = (
-            f'<div class="cruxly-card">'
-            f'<h3>Reader Profile &amp; DPR Feed Preferences</h3>'
-            f'<p><strong>Name:</strong> {profile.get("full_name") or "Registered Reader"} | '
-            f'<strong>Email:</strong> {profile.get("email")} | '
-            f'<strong>Status:</strong> {profile.get("account_status", "approved").upper()}</p>'
-            f'</div>'
-        )
-        st.markdown(prefs_card_html, unsafe_allow_html=True)
-
-        st.markdown("#### State Location via PIN Code")
-        p_col1, p_col2 = st.columns([1.5, 2.5])
-        with p_col1:
-            pin_val = st.text_input(
-                "6-Digit Indian PIN Code",
-                value=st.session_state["reader_pin"],
-                max_chars=6,
-                key="pin_input",
-            )
-            if pin_val != st.session_state["reader_pin"]:
-                st.session_state["reader_pin"] = pin_val
-                st.session_state["reader_state"] = _pin_to_state(pin_val)
-        with p_col2:
-            indian_states = [
-                "West Bengal", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar / Jharkhand",
-                "Delhi", "Gujarat", "Haryana", "Himachal Pradesh", "Jammu & Kashmir / Ladakh",
-                "Karnataka", "Kerala", "Madhya Pradesh / Chhattisgarh", "Maharashtra / Goa",
-                "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Punjab",
-                "Rajasthan", "Tamil Nadu / Puducherry", "Telangana / Andhra Pradesh",
-                "Tripura", "Uttar Pradesh / Uttarakhand",
-            ]
-            current_state = st.session_state["reader_state"]
-            idx = indian_states.index(current_state) if current_state in indian_states else 0
-            manual_state = st.selectbox(
-                "Active State for 'State' Geography Stories (Auto-detected from PIN or override manually)",
-                indian_states,
-                index=idx,
-                key="manual_state_select",
-            )
-            st.session_state["reader_state"] = manual_state
-
-        st.markdown("#### Newspaper Source Exclusions")
-        all_source_names = sorted({src["name"] for src in get_active_sources()})
-        excluded_sel = st.multiselect(
-            "Exclude specific newspapers (National & International stories remain visible; feed never empties)",
-            all_source_names,
-            default=st.session_state["excluded_sources"],
-            key="exclude_sources_multiselect",
-        )
-        st.session_state["excluded_sources"] = excluded_sel
-
-        st.markdown("#### Approved DPR Genres — Feed Priority")
-        g_cols = st.columns(3)
-        for i, genre_name in enumerate(valid_genres):
-            with g_cols[i % 3]:
-                prio = st.selectbox(
-                    genre_name,
-                    ["High", "Medium", "Low"],
-                    index=["High", "Medium", "Low"].index(
-                        st.session_state["genre_priorities"].get(genre_name, "Medium")
-                    ),
-                    key=f"prio_{genre_name}",
-                )
-                st.session_state["genre_priorities"][genre_name] = prio
-
-        if st.button("Save Preferences to Profile", type="primary", key="save_prefs_btn"):
-            try:
-                supabase.table("user_preferences").upsert(
-                    {
-                        "user_id": user.id,
-                        "selected_state": st.session_state["reader_state"],
-                        "genre_priorities": st.session_state["genre_priorities"],
-                        "excluded_sources": st.session_state["excluded_sources"],
-                        "updated_at": datetime.now(IST).isoformat(),
-                    }
-                ).execute()
-                st.success("Your State, Genre Priority, and Newspaper Exclusion preferences have been saved.")
-            except Exception as pref_exc:
-                st.error(f"Could not save preferences: {pref_exc}")
+            for story in saved_stories:
+                _render_story_card(supabase, story, lang_mode, user_id, saved_ids, "saved")
