@@ -19,24 +19,22 @@ IST = pytz.timezone("Asia/Kolkata")
 
 GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 
-ALLOWED_GENRES = {
-    "National Affairs",
-    "West Bengal",
-    "International",
-    "Economy & Business",
-    "Science & Tech",
-    "Governance & Policy",
+APPROVED_GENRES = [
+    "Politics & Governance",
     "Education",
+    "Science & Technology",
+    "Business & Economy",
+    "Health",
     "Sports",
-    "Environment & Weather",
-}
+    "Entertainment",
+    "Environment & Climate",
+    "Crime & Law",
+    "Agriculture & Rural Affairs",
+    "Career & Employment",
+    "Culture & Literature",
+]
 
-ALLOWED_GEOGRAPHIES = {
-    "National",
-    "West Bengal",
-    "International",
-    "Regional",
-}
+ALLOWED_GEOGRAPHIES = {"State", "National", "International"}
 
 
 def _clean_text(raw: str) -> str:
@@ -55,35 +53,57 @@ def _extract_json_object(raw_text: str) -> dict:
 
 
 def _normalize_geography(raw_geo: str | None, fallback: str = "National") -> str:
-    """Maps LLM geography output strictly onto allowed database CHECK constraint values."""
+    """Maps geography strictly onto ['State', 'National', 'International'] to satisfy stories_geography_check."""
     val = (raw_geo or "").strip().lower()
-    if "bengal" in val or "kolkata" in val or "state" in val:
-        return "West Bengal"
-    if "internat" in val or "world" in val or "global" in val or "usa" in val or "us" == val:
+    if any(k in val for k in ("state", "bengal", "kolkata", "regional", "provincial")):
+        return "State"
+    if any(k in val for k in ("internat", "world", "global", "foreign", "usa", "uk", "china", "un")):
         return "International"
-    if "region" in val:
-        return "Regional"
-    if val in ("national", "india", "domestic"):
+    if any(k in val for k in ("national", "india", "domestic", "central")):
         return "National"
-    return fallback if fallback in ALLOWED_GEOGRAPHIES else "National"
+    fb_clean = (fallback or "").strip().title()
+    return fb_clean if fb_clean in ALLOWED_GEOGRAPHIES else "National"
 
 
-def _normalize_genre(raw_genre: str | None, geography: str) -> str:
-    """Ensures every story has a distinct subject/desk label (never duplicating 'National | National')."""
+def _normalize_genre(raw_genre: str | None) -> str:
+    """Enforces classification strictly within the 12 approved DPR genres."""
     cleaned = (raw_genre or "").strip()
-    for allowed in ALLOWED_GENRES:
+    for allowed in APPROVED_GENRES:
         if cleaned.lower() == allowed.lower():
             return allowed
-    if geography == "West Bengal":
-        return "West Bengal"
-    if geography == "International":
-        return "International"
-    return "National Affairs"
+
+    low = cleaned.lower()
+    if any(w in low for w in ("politic", "govern", "elect", "parliament", "minister", "policy")):
+        return "Politics & Governance"
+    if any(w in low for w in ("educat", "school", "college", "university", "exam", "student")):
+        return "Education"
+    if any(w in low for w in ("scien", "tech", "space", "isro", "ai", "cyber", "digital")):
+        return "Science & Technology"
+    if any(w in low for w in ("busin", "econom", "market", "bank", "finance", "trade", "tax")):
+        return "Business & Economy"
+    if any(w in low for w in ("health", "medic", "hospital", "disease", "doctor", "who")):
+        return "Health"
+    if any(w in low for w in ("sport", "cricket", "football", "olympic", "match", "tournament")):
+        return "Sports"
+    if any(w in low for w in ("entertain", "film", "cinema", "movie", "music", "actor")):
+        return "Entertainment"
+    if any(w in low for w in ("environ", "climat", "weather", "cyclone", "flood", "rain", "pollution")):
+        return "Environment & Climate"
+    if any(w in low for w in ("crime", "law", "court", "police", "arrest", "supreme court", "high court")):
+        return "Crime & Law"
+    if any(w in low for w in ("agricult", "farm", "rural", "crop", "monsoon", "kisan")):
+        return "Agriculture & Rural Affairs"
+    if any(w in low for w in ("career", "employ", "job", "recruit", "hiring", "vacancy")):
+        return "Career & Employment"
+    if any(w in low for w in ("cultur", "literat", "book", "festival", "heritage", "art")):
+        return "Culture & Literature"
+
+    return "Politics & Governance"
 
 
 def _has_bengali_script(text: str) -> bool:
-    """Verifies that the Bengali summary actually uses Bengali Unicode characters (U+0980..U+09FF)."""
-    return bool(re.search(r"[\u0980-\u09FF]{5,}", text or ""))
+    """Verifies that text uses genuine Bengali Unicode characters (U+0980..U+09FF)."""
+    return bool(re.search(r"[\u0980-\u09FF]{4,}", text or ""))
 
 
 def _get_existing_urls_and_headlines(supabase) -> tuple[set[str], set[str]]:
@@ -139,7 +159,7 @@ def fetch_rss_items(max_per_feed: int = 8) -> list[dict]:
                                 "source_id": source["id"],
                                 "source_name": source["name"],
                                 "language": source["language"],
-                                "geography": source["default_geography"],
+                                "geography": _normalize_geography(source.get("default_geography"), "National"),
                                 "title": title,
                                 "snippet": snippet,
                                 "url": link,
@@ -188,19 +208,23 @@ def _build_synthesis_prompt(cluster: list[dict]) -> str:
         f"- [{it['source_name']} ({it['language']})]: {it['title']} — {it['snippet']}"
         for it in cluster
     )
+    genres_list = json.dumps(APPROVED_GENRES)
     return (
-        "You are a senior news editor for Cruxly in Kolkata, West Bengal. Synthesize the following news notes "
+        "You are a senior bilingual news editor for Cruxly. Synthesize the following news notes "
         "into an original, objective, consolidated abridged report in BOTH English and standard Bengali (বাংলা লিপি).\n"
-        "CRITICAL LANGUAGE RULE: 'what_happened_bn' MUST be written strictly in Bengali Unicode script (বাংলা বর্ণমালা, e.g., কলকাতা, ভারত). "
-        "NEVER use Hindi (Devanagari) or Punjabi (Gurmukhi) script in 'what_happened_bn'.\n"
-        "Do NOT copy sentences verbatim from any source.\n\n"
-        "Respond ONLY with a raw JSON object containing EXACTLY these keys:\n"
+        "CRITICAL RULES:\n"
+        "1. 'headline_bn' and 'in_brief_bn' MUST be written strictly in Bengali Unicode script (বাংলা বর্ণমালা). "
+        "NEVER use Hindi (Devanagari) or Punjabi (Gurmukhi) script.\n"
+        "2. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"]. Use \"State\" for Indian state-level news, \"National\" for India-wide news, and \"International\" for global/foreign news.\n"
+        f"3. 'primary_genre' MUST be strictly one of the 12 approved genres: {genres_list}.\n"
+        "4. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT copy sentences verbatim.\n\n"
+        "Respond ONLY with a raw JSON object containing EXACTLY these 6 keys:\n"
         '- "headline_en": Concise, factual English headline (max 15 words).\n'
-        '- "primary_genre": MUST be one of ["National Affairs", "West Bengal", "International", "Economy & Business", "Science & Tech", "Governance & Policy", "Education", "Sports", "Environment & Weather"].\n'
-        '- "geography": MUST be one of ["National", "West Bengal", "International", "Regional"].\n'
-        '- "what_happened_en": 2-3 clear sentences explaining the core verified facts in English.\n'
-        '- "key_details_en": 2-3 sentences covering important context, differing source claims (if any), and next steps.\n'
-        '- "what_happened_bn": Natural, accurate Bengali (বাংলা) summary of the core facts and key details (3-4 sentences in Bengali script only).\n\n'
+        '- "headline_bn": Natural, accurate Bengali headline in Bengali Unicode script.\n'
+        '- "primary_genre": Exact string from the 12 approved genres above.\n'
+        '- "geography": Exact string from ["State", "National", "International"].\n'
+        '- "in_brief_en": Unified 3-5 sentence objective English summary covering what happened and key context.\n'
+        '- "in_brief_bn": Unified 3-5 sentence objective Bengali summary in Bengali Unicode script only.\n\n'
         f"Source Notes:\n{source_notes}"
     )
 
@@ -212,7 +236,8 @@ def synthesize_cluster(
 ) -> tuple[dict, str | None]:
     """
     Generates an original consolidated abridged summary in English and Bengali.
-    Enforces strict geography/genre normalization and Bengali Unicode script validation.
+    Enforces strict DPR geography ['State', 'National', 'International'], 12 approved genres,
+    Bengali headlines, and Bengali Unicode script validation.
     """
     primary = cluster[0]
     source_names = sorted({item["source_name"] for item in cluster})
@@ -222,21 +247,28 @@ def synthesize_cluster(
 
     def _finalize_parsed(parsed: dict) -> dict:
         geo = _normalize_geography(parsed.get("geography"), fallback_geo)
-        genre = _normalize_genre(parsed.get("primary_genre"), geo)
-        bn_text = (parsed.get("what_happened_bn") or "").strip()
-        if not _has_bengali_script(bn_text):
-            bn_text = f"সূত্র: {', '.join(source_names)} — {parsed.get('headline_en') or primary['title']}"
+        genre = _normalize_genre(parsed.get("primary_genre"))
+        headline_en = (parsed.get("headline_en") or primary["title"]).strip()
+        headline_bn = (parsed.get("headline_bn") or "").strip()
+        in_brief_en = (parsed.get("in_brief_en") or parsed.get("what_happened_en") or primary["snippet"] or primary["title"]).strip()
+        in_brief_bn = (parsed.get("in_brief_bn") or parsed.get("what_happened_bn") or "").strip()
+
+        if not _has_bengali_script(headline_bn):
+            headline_bn = f"সংবাদ শিরোনাম ({', '.join(source_names)})"
+        if not _has_bengali_script(in_brief_bn):
+            in_brief_bn = f"সূত্র: {', '.join(source_names)} — {headline_en}"
+
         return {
-            "headline_en": parsed.get("headline_en") or primary["title"],
+            "headline_en": headline_en,
             "primary_genre": genre,
             "geography": geo,
             "summary_en": {
-                "what_happened": parsed.get("what_happened_en", ""),
-                "key_details": parsed.get("key_details_en", ""),
+                "in_brief": in_brief_en,
                 "sources": source_names,
             },
             "summary_bn": {
-                "what_happened": bn_text,
+                "headline_bn": headline_bn,
+                "in_brief": in_brief_bn,
             },
         }
 
@@ -252,7 +284,7 @@ def synthesize_cluster(
                             "role": "system",
                             "content": (
                                 "You are a precise bilingual news editor. Output valid JSON only. "
-                                "Write Bengali summaries strictly in Bengali script (বাংলা), never Hindi or Punjabi."
+                                "Write Bengali headlines and summaries strictly in Bengali Unicode script (বাংলা)."
                             ),
                         },
                         {"role": "user", "content": prompt},
@@ -282,19 +314,18 @@ def synthesize_cluster(
 
     # 3. Fallback when LLM is unavailable or errored
     combined_brief = primary["snippet"] or primary["title"]
-    fallback_genre = "West Bengal" if fallback_geo == "West Bengal" else "National Affairs"
     return (
         {
             "headline_en": primary["title"],
-            "primary_genre": fallback_genre,
+            "primary_genre": _normalize_genre(primary["title"]),
             "geography": fallback_geo,
             "summary_en": {
-                "what_happened": combined_brief,
-                "key_details": f"Corroborated across {', '.join(source_names)}. Click original publisher links for full coverage.",
+                "in_brief": f"{combined_brief} (Corroborated across {', '.join(source_names)}.)",
                 "sources": source_names,
             },
             "summary_bn": {
-                "what_happened": f"সূত্র: {', '.join(source_names)} — {primary['title']}",
+                "headline_bn": f"সংবাদ শিরোনাম ({', '.join(source_names)})",
+                "in_brief": f"সূত্র: {', '.join(source_names)} — {primary['title']}",
             },
         },
         llm_error,
