@@ -43,6 +43,14 @@ st.markdown(
         color: #1D120A;
     }
 
+    /* Equal-Height Split-Screen Columns */
+    div[data-testid="stHorizontalBlock"] {
+        align-items: stretch !important;
+    }
+    div[data-testid="stColumn"] > div {
+        height: 100%;
+    }
+
     /* ---------------------------------------------------------
        SPLIT-SCREEN PUBLIC LANDING PAGE (BURGUNDY + PRINT BROADSHEET)
        --------------------------------------------------------- */
@@ -50,14 +58,17 @@ st.markdown(
         background: linear-gradient(165deg, #3C0612 0%, #26030B 100%);
         border: 2px solid #D4AF37;
         border-radius: 14px;
-        padding: 28px 24px;
+        padding: 24px 22px 18px 22px;
         color: #FBF9F4;
         text-align: center;
         box-shadow: 0 8px 24px rgba(29, 18, 10, 0.16);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }
     .landing-logo-img {
-        width: 215px;
-        height: 215px;
+        width: 210px;
+        height: 210px;
         object-fit: cover;
         border-radius: 16px;
         border: 2.5px solid #D4AF37;
@@ -65,63 +76,77 @@ st.markdown(
         display: block;
         box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
     }
-    .landing-subtitle {
-        font-size: 1.03rem;
-        line-height: 1.48;
-        color: #F8E7B4;
-        margin: 0 auto 18px auto;
-        max-width: 440px;
-    }
     .landing-feature-pill {
-        background-color: rgba(255, 255, 255, 0.06);
+        background-color: rgba(255, 255, 255, 0.07);
         border: 1px solid rgba(212, 175, 55, 0.65);
         border-radius: 8px;
         padding: 8px 14px;
-        margin: 0 auto 9px auto;
-        max-width: 420px;
-        font-size: 0.95rem;
+        margin: 0 auto 8px auto;
+        width: 100%;
+        max-width: 410px;
+        font-size: 0.94rem;
         font-weight: 600;
         color: #FBF9F4;
         text-align: left;
+        box-sizing: border-box;
     }
-    .landing-google-wrap {
-        margin: 20px auto 14px auto;
+
+    /* Native st.link_button styled with Multicolor Google "G" Icon (Top-Frame Safe) */
+    .google-btn-holder {
         display: flex;
         justify-content: center;
+        margin: 14px auto 10px auto;
     }
-    a.google-signin-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
+    .google-btn-holder + div[data-testid="stLinkButton"],
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] {
+        display: flex !important;
+        justify-content: center !important;
+        margin: 12px auto 10px auto !important;
+    }
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a {
         background-color: #FFFFFF !important;
         color: #1F1F1F !important;
         border: 2px solid #D4AF37 !important;
-        border-radius: 8px;
-        padding: 11px 24px;
+        border-radius: 8px !important;
+        padding: 10px 24px !important;
         font-family: "Inter", "Times New Roman", sans-serif !important;
-        font-size: 1.04rem;
-        font-weight: 700;
-        text-decoration: none !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+        font-size: 1.03rem !important;
+        font-weight: 700 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28) !important;
     }
-    a.google-signin-btn:hover {
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a::before {
+        content: "";
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+        background-repeat: no-repeat;
+        background-size: contain;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23EA4335' d='M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z'/%3E%3Cpath fill='%234285F4' d='M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z'/%3E%3Cpath fill='%23FBBC05' d='M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z'/%3E%3Cpath fill='%2334A853' d='M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z'/%3E%3C/svg%3E");
+    }
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a:hover {
         background-color: #FFFDF7 !important;
+        color: #1F1F1F !important;
         border-color: #E5C158 !important;
     }
+
     .landing-credit {
         border-top: 1px solid rgba(212, 175, 55, 0.35);
-        padding-top: 12px;
-        margin-top: 8px;
-        font-size: 0.85rem;
+        padding-top: 10px;
+        margin-top: 6px;
+        font-size: 0.84rem;
         color: #E5D7C1;
+        text-align: center;
     }
     .landing-credit span {
         color: #E5C158;
         font-weight: bold;
     }
 
-    /* Right Column: Compact Print-Style Digital Broadsheet */
+    /* Right Column: Equal-Height Print-Style Digital Broadsheet */
     .newsprint-sheet {
         background-color: #FBF9F4;
         border: 2px solid #1D120A;
@@ -129,6 +154,12 @@ st.markdown(
         padding: 18px 22px;
         color: #1D120A;
         box-shadow: 0 6px 20px rgba(29, 18, 10, 0.08);
+        height: 100%;
+        min-height: 560px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
     }
     .newsprint-masthead {
         border-bottom: 3px double #1D120A;
@@ -167,15 +198,15 @@ st.markdown(
     /* Print Newspaper Lead Story + 2-Column Below Fold */
     .paper-lead-story {
         border-bottom: 1.5px solid #1D120A;
-        padding-bottom: 10px;
-        margin-bottom: 10px;
+        padding-bottom: 12px;
+        margin-bottom: 12px;
     }
     .paper-kicker {
         font-size: 0.69rem;
         font-weight: bold;
         letter-spacing: 0.04em;
         color: #7A1C24;
-        margin-bottom: 2px;
+        margin-bottom: 3px;
     }
     .paper-corrob-badge {
         background-color: #EFE9DA;
@@ -187,21 +218,21 @@ st.markdown(
     }
     .paper-lead-headline {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 1.15rem;
+        font-size: 1.18rem;
         font-weight: 700;
         color: #1D120A;
-        margin: 0 0 2px 0;
-        line-height: 1.24;
+        margin: 0 0 3px 0;
+        line-height: 1.25;
     }
     .paper-byline {
         font-size: 0.73rem;
         font-style: italic;
         color: #6B5846;
-        margin-bottom: 4px;
+        margin-bottom: 5px;
     }
     .paper-lead-copy {
-        font-size: 0.88rem;
-        line-height: 1.4;
+        font-size: 0.9rem;
+        line-height: 1.44;
         color: #2B1E12;
         margin: 0;
     }
@@ -217,23 +248,23 @@ st.markdown(
     }
     .paper-col-headline {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 0.96rem;
+        font-size: 0.98rem;
         font-weight: 700;
         color: #1D120A;
-        margin: 0 0 2px 0;
-        line-height: 1.25;
+        margin: 0 0 3px 0;
+        line-height: 1.26;
     }
     .paper-col-copy {
-        font-size: 0.83rem;
-        line-height: 1.38;
+        font-size: 0.85rem;
+        line-height: 1.4;
         color: #33261A;
         margin: 0;
     }
 
     .newsprint-bottom-links {
         border-top: 2px solid #1D120A;
-        margin-top: 12px;
-        padding-top: 9px;
+        margin-top: 14px;
+        padding-top: 10px;
         text-align: center;
         font-size: 0.84rem;
         display: flex;
@@ -298,7 +329,7 @@ st.markdown(
         margin: 0;
     }
 
-    /* Native Streamlit Buttons & Link Buttons */
+    /* Native Streamlit Buttons & Link Buttons (Signed-In & Legal Views) */
     div.stButton > button,
     div[data-testid="stLinkButton"] > a {
         background-color: #3C0612 !important;
@@ -463,6 +494,9 @@ st.markdown(
             border-bottom: 1px solid #C8BFA8;
             padding-right: 0;
             padding-bottom: 10px;
+        }
+        .newsprint-sheet {
+            min-height: auto;
         }
         .cruxly-dateline {
             margin-left: 0;
