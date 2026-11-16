@@ -22,10 +22,10 @@ def _format_ist_short(raw_iso: str | None) -> str:
         return str(raw_iso)[:16]
 
 
-def _normalize_publisher_name(raw_name: str) -> str:
-    """Normalizes publisher names so multiple URLs from the same paper count as 1 distinct source."""
-    clean = re.sub(r"\s*[-–—|:]\s*(kolkata|delhi|mumbai|national|bengal|editorial|opinion|live).*$", "", raw_name.strip(), flags=re.IGNORECASE)
-    return clean.strip().lower()
+def _clean_preview_summary(raw_text: str) -> str:
+    """Removes inline corroboration parentheticals for clean front-page excerpts."""
+    cleaned = re.sub(r"\s*\(Corroborated across[^)]*\)\.?", "", raw_text, flags=re.IGNORECASE)
+    return cleaned.strip()
 
 
 def render_legal_page(active_page: str, logo_b64: str) -> bool:
@@ -119,48 +119,39 @@ def render_legal_page(active_page: str, logo_b64: str) -> bool:
 
 
 def _select_front_page_stories(supabase: Client) -> list[dict]:
-    """
-    Fetches recent published stories and strictly prioritizes stories corroborated across
-    >= 2 genuinely distinct newspaper publishers (never counting duplicate links from 1 outlet).
-    """
+    """Fetches 3 recent published stories across diverse genres for a balanced front-page layout."""
     try:
         res = (
             supabase.table("stories")
-            .select(
-                "id, headline_en, primary_genre, geography, summary_en, published_at, "
-                "story_references(source_name, article_url)"
-            )
+            .select("id, headline_en, primary_genre, geography, summary_en, published_at")
             .eq("status", "published")
             .order("published_at", desc=True)
-            .limit(80)
+            .limit(15)
             .execute()
         )
         rows = res.data or []
     except Exception:
         return []
 
-    corroborated: list[dict] = []
-    single_source: list[dict] = []
+    picked: list[dict] = []
+    seen_genres: set[str] = set()
+    for r in rows:
+        g = (r.get("primary_genre") or "").strip()
+        if g not in seen_genres:
+            picked.append(r)
+            seen_genres.add(g)
+        if len(picked) == 3:
+            break
 
-    for row in rows:
-        refs = row.get("story_references") or []
-        distinct_publishers = {
-            _normalize_publisher_name(r.get("source_name") or "")
-            for r in refs
-            if (r.get("source_name") or "").strip()
-        }
-        distinct_publishers.discard("")
-        row["_distinct_publisher_count"] = len(distinct_publishers)
-        if len(distinct_publishers) >= 2:
-            corroborated.append(row)
-        else:
-            single_source.append(row)
+    if len(picked) < 3:
+        picked_ids = {p["id"] for p in picked}
+        for r in rows:
+            if r["id"] not in picked_ids:
+                picked.append(r)
+            if len(picked) == 3:
+                break
 
-    selected: list[dict] = []
-    selected.extend(corroborated[:3])
-    if len(selected) < 3:
-        selected.extend(single_source[: 3 - len(selected)])
-    return selected[:3]
+    return picked[:3]
 
 
 def render_public_landing(supabase: Client, logo_b64: str) -> None:
@@ -177,16 +168,16 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
     )
 
     today_ist = datetime.now(IST).strftime("%A, %d %B %Y")
-    left_col, right_col = st.columns([1.0, 1.3], gap="large")
+    left_col, right_col = st.columns([1.0, 1.32], gap="large")
 
     # ---------------------------------------------------------
-    # LEFT COLUMN: ENLARGED LOGO + 5 UNIFORM FEATURE BOXES + GOOGLE OAUTH
+    # LEFT COLUMN: UNIFIED BURGUNDY CARD (LOGO + 5 BOXES + GOOGLE OAUTH + CREDIT)
     # ---------------------------------------------------------
     with left_col:
-        st.markdown(
-            f"""
-            <div class="landing-brand-panel">
-                <div>
+        with st.container(border=True):
+            st.markdown(
+                f"""
+                <div class="brand-top-block">
                     <img src="data:image/jpeg;base64,{logo_b64}" class="landing-logo-img" alt="Cruxly Logo" />
                     <div class="landing-feature-pill">✨ Intelligent Bilingual News Briefings</div>
                     <div class="landing-feature-pill">🗞️ Curated from English, Bengali &amp; Hindi Dailies</div>
@@ -194,27 +185,23 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
                     <div class="landing-feature-pill">🔄 Multi-Source Cross-Referencing &amp; Clustering</div>
                     <div class="landing-feature-pill">🌐 Direct Attribution Links to Original Publishers</div>
                 </div>
-            """,
-            unsafe_allow_html=True,
-        )
+                """,
+                unsafe_allow_html=True,
+            )
 
-        # Native Streamlit link_button breaks out of Streamlit Cloud iframe cleanly (prevents Google 403)
-        # Styled via CSS in app.py with the multicolor Google "G" emblem
-        st.markdown('<div class="google-btn-holder">', unsafe_allow_html=True)
-        st.link_button("Sign in with Google", url=oauth_url, use_container_width=False)
-        st.markdown(
-            """
-                </div>
+            st.link_button("Sign in with Google", url=oauth_url, use_container_width=True)
+
+            st.markdown(
+                """
                 <div class="landing-credit">
                     Designed &amp; Crafted by: <span>Dr Joydip Chandra</span> | &copy; 2026 Cruxly
                 </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+                """,
+                unsafe_allow_html=True,
+            )
 
     # ---------------------------------------------------------
-    # RIGHT COLUMN: EQUAL-HEIGHT PRINT-STYLE DIGITAL BROADSHEET
+    # RIGHT COLUMN: COMPACT PRINT-STYLE DIGITAL BROADSHEET
     # ---------------------------------------------------------
     with right_col:
         previews = _select_front_page_stories(supabase)
@@ -224,12 +211,6 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
             genre = html.escape(item.get("primary_genre") or "General")
             geo = html.escape(item.get("geography") or "National")
             dateline = html.escape(_format_ist_short(item.get("published_at")))
-            pub_count = item.get("_distinct_publisher_count", 1)
-            corrob_tag = (
-                f' &bull; <span class="paper-corrob-badge">VERIFIED ACROSS {pub_count} DAILIES</span>'
-                if pub_count >= 2
-                else ""
-            )
 
             sum_obj = item.get("summary_en") or {}
             raw_brief = (
@@ -237,14 +218,15 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
                 or sum_obj.get("what_happened")
                 or "Sign in with Google to read the complete consolidated briefing and original newspaper links."
             ) if isinstance(sum_obj, dict) else str(sum_obj)
+            clean_brief = _clean_preview_summary(raw_brief)
 
-            max_len = 225 if is_lead else 160
-            brief_text = html.escape(raw_brief[:max_len] + ("..." if len(raw_brief) > max_len else ""))
+            max_len = 165 if is_lead else 115
+            brief_text = html.escape(clean_brief[:max_len] + ("..." if len(clean_brief) > max_len else ""))
 
             if is_lead:
                 return (
                     f'<article class="paper-lead-story">'
-                    f'<div class="paper-kicker">{genre.upper()} &bull; {geo.upper()}{corrob_tag}</div>'
+                    f'<div class="paper-kicker">{genre.upper()} &bull; {geo.upper()}</div>'
                     f'<h2 class="paper-lead-headline">{headline}</h2>'
                     f'<div class="paper-byline">{dateline}</div>'
                     f'<p class="paper-lead-copy">{brief_text}</p>'
@@ -252,7 +234,7 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
                 )
             return (
                 f'<article class="paper-col-story">'
-                f'<div class="paper-kicker">{genre.upper()}{corrob_tag}</div>'
+                f'<div class="paper-kicker">{genre.upper()}</div>'
                 f'<h3 class="paper-col-headline">{headline}</h3>'
                 f'<div class="paper-byline">{geo} &bull; {dateline}</div>'
                 f'<p class="paper-col-copy">{brief_text}</p>'
@@ -285,7 +267,7 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
                             <span>{today_ist}</span>
                         </div>
                         <div class="newsprint-paper-title">THE CRUXLY DISPATCH</div>
-                        <div class="newsprint-paper-sub">Cross-Verified Front-Page Briefings &bull; Sign in for Full Bilingual Reports &amp; Source Links</div>
+                        <div class="newsprint-paper-sub">Front-Page Briefings &bull; Sign in for Full Bilingual Reports &amp; Source Links</div>
                     </div>
                     {front_body_html}
                 </div>
