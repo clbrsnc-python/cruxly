@@ -19,6 +19,11 @@ IST = pytz.timezone("Asia/Kolkata")
 
 GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
 APPROVED_GENRES = [
     "Politics & Governance",
     "Education",
@@ -41,6 +46,22 @@ def _clean_text(raw: str) -> str:
     """Strips HTML tags and excess whitespace from RSS snippets."""
     text = re.sub(r"<[^>]+>", " ", raw or "")
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _polish_bengali_grammar(text: str) -> str:
+    """Fixes common LLM Bengali punctuation/suffix glitches and phonetic English loanwords."""
+    if not text:
+        return text
+    # Fix case suffixes orphaned outside closing quotes: ‘এনকাউন্টার’ে -> ‘এনকাউন্টারে’
+    text = re.sub(r"([‘’'\"])([েয়কেতর])", r"\2\1", text)
+    # Replace awkward phonetic transliterations with standard Bengali journalistic terms
+    replacements = {
+        "ম্যানিফেস্টা": "নির্বাচনী ইস্তাহার",
+        "ম্যানিফেস্টো": "নির্বাচনী ইস্তাহার",
+    }
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+    return text.strip()
 
 
 def _extract_json_object(raw_text: str) -> dict:
@@ -153,12 +174,12 @@ def _get_existing_urls_and_headlines(supabase) -> tuple[set[str], set[str]]:
 
 
 def fetch_rss_items(max_per_feed: int = 8) -> list[dict]:
-    """Collects latest headlines, short descriptions, and direct links from active sources."""
+    """Collects latest headlines, short descriptions, and direct links across English, Bengali, and Hindi sources."""
     collected = []
     for source in get_active_sources():
         for rss_url in source.get("rss_urls", []):
             try:
-                parsed = feedparser.parse(rss_url)
+                parsed = feedparser.parse(rss_url, agent=USER_AGENT)
                 for entry in parsed.entries[:max_per_feed]:
                     title = _clean_text(entry.get("title", ""))
                     link = (entry.get("link") or "").strip()
@@ -182,17 +203,22 @@ def fetch_rss_items(max_per_feed: int = 8) -> list[dict]:
 
 
 def cluster_items(items: list[dict], max_clusters: int = 20) -> list[list[dict]]:
-    """Groups articles covering the same specific event across distinct newspapers."""
+    """
+    Groups matching stories across English, Bengali, and Hindi feeds using multilingual Unicode tokenization,
+    and guarantees strong representation of original Bengali newspaper clusters in every cycle.
+    """
     clusters: list[list[dict]] = []
     stop_words = {
         "the", "and", "for", "with", "from", "that", "this", "into",
         "over", "after", "amid", "says", "new", "india", "news", "will",
         "credit", "card", "bank", "report", "state", "govt", "government",
+        "এবং", "করে", "হয়েছে", "থেকে", "জন্য", "নিয়ে", "বলেছেন", "রাজ্য", "খবর",
     }
 
     def tokenize(text: str) -> set[str]:
-        words = re.findall(r"[a-zA-Z]{4,}", text.lower())
-        return {w for w in words if w not in stop_words}
+        en_words = re.findall(r"[a-zA-Z]{4,}", text.lower())
+        indic_words = re.findall(r"[\u0980-\u09FF\u0900-\u097F]{2,}", text)
+        return {w for w in (en_words + indic_words) if w not in stop_words}
 
     for item in items:
         tokens = tokenize(item["title"])
@@ -202,33 +228,55 @@ def cluster_items(items: list[dict], max_clusters: int = 20) -> list[list[dict]]
             if item["source_id"] in existing_sources:
                 continue
             ref_tokens = tokenize(cluster[0]["title"])
-            if tokens and ref_tokens and len(tokens & ref_tokens) >= 3:
+            min_overlap = 2 if item["language"] == "bn" else 3
+            if tokens and ref_tokens and len(tokens & ref_tokens) >= min_overlap:
                 cluster.append(item)
                 placed = True
                 break
         if not placed:
             clusters.append([item])
 
-    clusters.sort(key=lambda c: len(c), reverse=True)
-    return clusters[:max_clusters]
+    bn_clusters = [c for c in clusters if any(it["language"] == "bn" for it in c)]
+    other_clusters = [c for c in clusters if not any(it["language"] == "bn" for it in c)]
+
+    bn_clusters.sort(key=lambda c: len(c), reverse=True)
+    other_clusters.sort(key=lambda c: len(c), reverse=True)
+
+    bn_quota = min(len(bn_clusters), max_clusters // 2)
+    selected = bn_clusters[:bn_quota] + other_clusters[: max_clusters - bn_quota]
+    if len(selected) < max_clusters:
+        remaining_bn = bn_clusters[bn_quota : bn_quota + (max_clusters - len(selected))]
+        selected.extend(remaining_bn)
+
+    return selected[:max_clusters]
 
 
 def _build_synthesis_prompt(cluster: list[dict]) -> str:
+    has_bn_source = any(it["language"] == "bn" for it in cluster)
     source_notes = "\n".join(
         f"- [{it['source_name']} ({it['language']})]: {it['title']} — {it['snippet']}"
         for it in cluster
     )
     genres_list = json.dumps(APPROVED_GENRES)
+    bn_guidance = (
+        "Original Bengali newspaper notes are provided above—synthesize directly from the authentic Bengali reporting rather than doing literal word-for-word translation from English."
+        if has_bn_source
+        else "Write natural, idiomatic Kolkata/West Bengal journalistic Bengali (চলিত বাংলা সংবাদশৈলী), NOT literal English-to-Bengali calques."
+    )
     return (
-        "You are a senior bilingual news editor for Cruxly. Synthesize the following news notes "
+        "You are a senior bilingual news editor for Cruxly in Kolkata. Synthesize the following news notes "
         "into an original, objective, consolidated abridged report in BOTH English and standard Bengali (বাংলা লিপি).\n"
         "CRITICAL RULES:\n"
-        "1. 'headline_bn' and 'in_brief_bn' MUST be written strictly in Bengali Unicode script (বাংলা বর্ণমালা). "
+        f"1. {bn_guidance}\n"
+        "2. 'headline_bn' and 'in_brief_bn' MUST be written strictly in Bengali Unicode script (বাংলা বর্ণমালা). "
+        "Preserve exact subject-object meaning in Bengali: e.g., write 'কমিটির সদস্যদের নাম ঘোষণা' (announcement of committee members' names), NEVER 'কমিটির সদস্যদের ঘোষণা' (which wrongly means announcement by the members). "
+        "Attach Bengali case suffixes (-এ, -এর, -কে) directly to the word before any closing quotation mark (e.g., ‘এনকাউন্টারে’, NEVER ‘এনকাউন্টার’ে). "
+        "Use standard Bengali journalistic terms (e.g., 'নির্বাচনী ইস্তাহার' instead of 'ম্যানিফেস্টা'). "
         "NEVER use Hindi (Devanagari) or Punjabi (Gurmukhi) script.\n"
-        "2. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"]. Use \"State\" for Indian state-level news, \"National\" for India-wide news, and \"International\" for global/foreign news.\n"
-        "3. If 'geography' is \"State\", set 'state_name' to the Indian state name (e.g., \"West Bengal\", \"Maharashtra\", \"Rajasthan\"); otherwise set 'state_name' to null.\n"
-        f"4. 'primary_genre' MUST be strictly one of the 12 approved genres: {genres_list}.\n"
-        "5. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT copy sentences verbatim.\n\n"
+        "3. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"]. Use \"State\" for Indian state-level news, \"National\" for India-wide news, and \"International\" for global/foreign news.\n"
+        "4. If 'geography' is \"State\", set 'state_name' to the Indian state name (e.g., \"West Bengal\", \"Maharashtra\", \"Punjab\"); otherwise set 'state_name' to null.\n"
+        f"5. 'primary_genre' MUST be strictly one of the 12 approved genres: {genres_list}.\n"
+        "6. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT copy sentences verbatim.\n\n"
         "Respond ONLY with a raw JSON object containing EXACTLY these keys:\n"
         '- "headline_en": Concise, factual English headline (max 15 words).\n'
         '- "headline_bn": Natural, accurate Bengali headline in Bengali Unicode script.\n'
@@ -268,14 +316,20 @@ def synthesize_cluster(
             state_val = "West Bengal"
 
         headline_en = (parsed.get("headline_en") or primary["title"]).strip()
-        headline_bn = (parsed.get("headline_bn") or "").strip()
+        headline_bn = _polish_bengali_grammar((parsed.get("headline_bn") or "").strip())
         in_brief_en = (parsed.get("in_brief_en") or parsed.get("what_happened_en") or primary["snippet"] or primary["title"]).strip()
-        in_brief_bn = (parsed.get("in_brief_bn") or parsed.get("what_happened_bn") or "").strip()
+        in_brief_bn = _polish_bengali_grammar((parsed.get("in_brief_bn") or parsed.get("what_happened_bn") or "").strip())
 
         if not _has_bengali_script(headline_bn):
-            headline_bn = f"সংবাদ শিরোনাম ({', '.join(source_names)})"
+            if primary["language"] == "bn":
+                headline_bn = primary["title"]
+            else:
+                headline_bn = f"সংবাদ শিরোনাম ({', '.join(source_names)})"
         if not _has_bengali_script(in_brief_bn):
-            in_brief_bn = f"সূত্র: {', '.join(source_names)} — {headline_en}"
+            if primary["language"] == "bn":
+                in_brief_bn = primary["snippet"] or primary["title"]
+            else:
+                in_brief_bn = f"সূত্র: {', '.join(source_names)} — {headline_en}"
 
         return {
             "headline_en": headline_en,
@@ -305,8 +359,9 @@ def synthesize_cluster(
                         {
                             "role": "system",
                             "content": (
-                                "You are a precise bilingual news editor. Output valid JSON only. "
-                                "Write Bengali headlines and summaries strictly in Bengali Unicode script (বাংলা)."
+                                "You are a precise bilingual news editor in Kolkata. Output valid JSON only. "
+                                "Write natural, idiomatic Bengali headlines and summaries strictly in Bengali Unicode script (বাংলা), "
+                                "preserving exact grammatical agency (who acted vs. who was named)."
                             ),
                         },
                         {"role": "user", "content": prompt},
@@ -337,10 +392,12 @@ def synthesize_cluster(
     # 3. Fallback when LLM is unavailable or errored
     combined_brief = primary["snippet"] or primary["title"]
     safe_geo = fallback_geo if fallback_geo in ALLOWED_GEOGRAPHIES else "National"
+    bn_fallback_title = primary["title"] if primary["language"] == "bn" else f"সংবাদ শিরোনাম ({', '.join(source_names)})"
+    bn_fallback_brief = combined_brief if primary["language"] == "bn" else f"সূত্র: {', '.join(source_names)} — {primary['title']}"
     return (
         {
             "headline_en": primary["title"],
-            "headline_bn": f"সংবাদ শিরোনাম ({', '.join(source_names)})",
+            "headline_bn": bn_fallback_title,
             "primary_genre": _normalize_genre(primary["title"]),
             "secondary_genres": [],
             "geography": safe_geo,
@@ -350,8 +407,8 @@ def synthesize_cluster(
                 "sources": source_names,
             },
             "summary_bn": {
-                "headline_bn": f"সংবাদ শিরোনাম ({', '.join(source_names)})",
-                "in_brief": f"সূত্র: {', '.join(source_names)} — {primary['title']}",
+                "headline_bn": bn_fallback_title,
+                "in_brief": bn_fallback_brief,
             },
         },
         llm_error,
@@ -369,6 +426,7 @@ def run_ingestion_cycle(
     if not raw_items:
         return {"fetched": 0, "published": 0, "message": "No RSS entries reachable right now."}
 
+    bn_fetched = sum(1 for it in raw_items if it["language"] == "bn")
     existing_urls, existing_headlines = _get_existing_urls_and_headlines(supabase)
 
     fresh_items = [it for it in raw_items if it["url"] not in existing_urls]
@@ -377,11 +435,12 @@ def run_ingestion_cycle(
         return {
             "fetched": fetched_count,
             "published": 0,
-            "message": f"Fetched {fetched_count} RSS items; all were already published in recent cycles.",
+            "message": f"Fetched {fetched_count} RSS items ({bn_fetched} Bengali); all were already published in recent cycles.",
         }
 
     clusters = cluster_items(fresh_items, max_clusters=20)
     published_count = 0
+    bn_published = 0
     skipped_dups = 0
     errors: list[str] = []
     now_ist = datetime.now(IST)
@@ -389,7 +448,7 @@ def run_ingestion_cycle(
     expires_ist_iso = (now_ist + timedelta(days=90)).isoformat()
 
     for cluster in clusters:
-        norm_primary = re.sub(r"[^a-z0-9]+", " ", cluster[0]["title"].lower()).strip()
+        norm_primary = re.sub(r"[^a-z0-9\u0980-\u09FF]+", " ", cluster[0]["title"].lower()).strip()
         if norm_primary in existing_headlines:
             skipped_dups += 1
             continue
@@ -407,7 +466,6 @@ def run_ingestion_cycle(
             skipped_dups += 1
             continue
 
-        # Hard insert-level guard guaranteeing stories_geography_check compliance
         safe_geography = synthesized["geography"]
         if safe_geography not in ALLOWED_GEOGRAPHIES:
             safe_geography = "National"
@@ -431,6 +489,8 @@ def run_ingestion_cycle(
             if insert_res.data:
                 story_id = insert_res.data[0]["id"]
                 existing_headlines.add(norm_synth)
+                if any(it["language"] == "bn" for it in cluster):
+                    bn_published += 1
                 refs = [
                     {
                         "story_id": story_id,
@@ -458,7 +518,7 @@ def run_ingestion_cycle(
         "fetched": fetched_count,
         "published": published_count,
         "message": (
-            f"Fetched {fetched_count} RSS items, skipped {skipped_dups} duplicates, "
-            f"and published {published_count} consolidated briefings.{diag_suffix}"
+            f"Fetched {fetched_count} RSS items ({bn_fetched} Bengali), skipped {skipped_dups} duplicates, "
+            f"and published {published_count} consolidated briefings ({bn_published} citing Bengali dailies).{diag_suffix}"
         ),
     }
