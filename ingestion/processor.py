@@ -95,9 +95,17 @@ def fetch_approved_genres(supabase) -> list[dict]:
 
 
 def _clean_text(raw: str) -> str:
-    """Strips HTML tags and excess whitespace from RSS snippets."""
+    """Strips HTML tags, trailing publisher suffixes from Google News titles, and excess whitespace."""
     text = re.sub(r"<[^>]+>", " ", raw or "")
-    return re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
+    # Strip trailing ' - Publisher Name' appended by Google News RSS
+    text = re.sub(
+        r"\s+[\-\u2013\u2014]\s+(?:Anandabazar Patrika|Bartaman|Aajkaal|Sangbad Pratidin|Ei Samay|The Telegraph|The Hindu|The Indian Express|Times of India|Hindustan Times|NDTV).*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    return text
 
 
 def _parse_entry_datetime_ist(entry) -> datetime | None:
@@ -118,6 +126,22 @@ def _parse_entry_datetime_ist(entry) -> datetime | None:
         except Exception:
             pass
     return None
+
+
+def _resolve_cluster_published_at(cluster: list[dict], now_ist: datetime) -> str:
+    """
+    Preserves the authentic source publication timestamp (e.g. Nov 15) when available
+    in the cluster entries, clamped to <= now_ist.
+    """
+    valid_dts: list[datetime] = []
+    for item in cluster:
+        dt = item.get("published_dt")
+        if isinstance(dt, datetime):
+            clamped = dt if dt <= now_ist else now_ist
+            valid_dts.append(clamped)
+    if valid_dts:
+        return min(valid_dts).isoformat()
+    return now_ist.isoformat()
 
 
 def _extract_named_entities(cluster: list[dict]) -> tuple[list[str], list[str]]:
@@ -149,13 +173,18 @@ def _apply_universal_bengali_morphology(text: str) -> str:
     """
     Applies purely structural, algorithmic Bengali grammar & typography rules:
       1. Fixes Hindi '-varshiya' age calques across ALL Unicode hyphen/dash variants (\u2010-\u2015)
-         e.g., 'আট‑বছরীর' / 'আট-বছরীয়' / '৮–বছরী' -> 'আট বছর বয়সী' / '৮ বছর বয়সী'
+         e.g., 'আট‑বছরীর' / 'আট–বছরীর' / 'আট-বছরীয়' / '৮–বছরী' -> 'আট বছর বয়সী' / '৮ বছর বয়সী'
       2. Moves Bengali case suffixes trapped outside closing quotation marks back inside
     """
     if not text:
         return text
 
-    bn_num_words = "এক|দুই|তিন|চার|পাঁচ|ছয়|সাত|আট|নয়|দশ|এগারো|বারো|তেরো|চোদ্দ|পনেরো|ষোলো|সতেরো|আঠারো|উনিশ|বিশ"
+    bn_num_words = (
+        "এক|দুই|তিন|চার|পাঁচ|ছয়|সাত|আট|নয়|দশ|"
+        "এগারো|বারো|তেরো|চোদ্দ|পনেরো|ষোলো|সতেরো|আঠারো|উনিশ|বিশ|"
+        "একুশ|বাইশ|তেইশ|চব্বিশ|পঁচিশ|ছাব্বিশ|সাতাশ|আঠাশ|ঊনত্রিশ|ত্রিশ|"
+        "পঁয়ত্রিশ|চল্লিশ|পঁয়তাল্লিশ|পঞ্চাশ|ষাট|সত্তর|আশি|নব্বই"
+    )
     text = re.sub(
         rf"([০-৯0-9]+|{bn_num_words})[\s\-\u2010-\u2015]*বছরীয়?[াীের]*",
         r"\1 বছর বয়সী",
@@ -334,6 +363,7 @@ def fetch_rss_items(
                             "snippet": snippet,
                             "url": link,
                             "published": entry_dt.isoformat() if entry_dt else entry.get("published", ""),
+                            "published_dt": entry_dt,
                         }
                     )
             except Exception:
@@ -382,7 +412,6 @@ def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list
     other_clusters.sort(key=lambda c: len(c), reverse=True)
 
     if max_clusters is None:
-        # Interleave Bengali and English/Hindi clusters for balanced exhaustive backfill
         merged: list[list[dict]] = []
         max_len = max(len(bn_clusters), len(other_clusters))
         for i in range(max_len):
@@ -571,9 +600,9 @@ def synthesize_cluster(
             },
         }
 
-    # 1. Try Groq 120B (primary) then 20B (backup)
+    # 1. Try Groq 120B (primary) then 20B (backup) with max_retries=1 to prevent 25-min rate-limit stalls
     if groq_api_key and Groq is not None:
-        g_client = Groq(api_key=groq_api_key.strip())
+        g_client = Groq(api_key=groq_api_key.strip(), max_retries=1)
         for model_id in (PRIMARY_MODEL, BACKUP_MODEL):
             try:
                 chat_resp = g_client.chat.completions.create(
@@ -594,7 +623,8 @@ def synthesize_cluster(
                 )
                 content = chat_resp.choices[0].message.content or ""
                 parsed = _extract_json_object(content)
-                return _finalize_parsed(parsed, g_client=g_client), None
+                audit_client = g_client if model_id == PRIMARY_MODEL else None
+                return _finalize_parsed(parsed, g_client=audit_client), None
             except Exception as g_exc:
                 llm_error = f"Groq ({model_id}) error: {g_exc}"
 
@@ -648,8 +678,7 @@ def run_ingestion_cycle(
 ) -> dict:
     """
     Executes collect -> exclude astrology -> deduplicate -> cluster -> synthesize -> publish.
-    When exhaustive=True (or since_date is provided), collects up to 25 entries/feed and processes
-    ALL new unique clusters from that date onward with gentle Groq rate-limit pacing.
+    Preserves true source published_at dates (e.g. Nov 15) and fast-fails over on rate limits.
     """
     slot = edition_slot if edition_slot in ALLOWED_EDITION_SLOTS else "live"
     since_dt_ist: datetime | None = None
@@ -699,7 +728,6 @@ def run_ingestion_cycle(
     skipped_dups = 0
     errors: list[str] = []
     now_ist = datetime.now(IST)
-    now_ist_iso = now_ist.isoformat()
     expires_ist_iso = (now_ist + timedelta(days=90)).isoformat()
 
     for idx, cluster in enumerate(clusters):
@@ -727,6 +755,7 @@ def run_ingestion_cycle(
             safe_geography = "National"
 
         story_status = synthesized.get("status", "published")
+        story_published_iso = _resolve_cluster_published_at(cluster, now_ist)
         story_payload = {
             "headline_en": synthesized["headline_en"],
             "headline_bn": synthesized["headline_bn"],
@@ -738,7 +767,7 @@ def run_ingestion_cycle(
             "summary_en": synthesized["summary_en"],
             "summary_bn": synthesized["summary_bn"],
             "status": story_status,
-            "published_at": now_ist_iso,
+            "published_at": story_published_iso,
             "expires_at": expires_ist_iso,
         }
         try:
@@ -768,9 +797,8 @@ def run_ingestion_cycle(
             errors.append(str(ins_exc))
             continue
 
-        # Gentle pacing during large exhaustive backfills to stay comfortably inside Groq TPM/RPM limits
         if cluster_cap is None and idx < len(clusters) - 1:
-            time.sleep(1.2)
+            time.sleep(0.6)
 
     raw_items.clear()
     fresh_items.clear()
