@@ -120,8 +120,53 @@ def render_legal_page(active_page: str, logo_b64: str) -> bool:
     return False
 
 
+def _select_front_page_stories(supabase: Client) -> list[dict]:
+    """
+    Fetches recent published stories and prioritizes at least 2 multi-source corroborated stories
+    (>= 2 distinct newspaper references) so the front page showcases genuine cross-verification.
+    """
+    try:
+        res = (
+            supabase.table("stories")
+            .select(
+                "id, headline_en, primary_genre, geography, summary_en, published_at, "
+                "story_references(source_name, article_url)"
+            )
+            .eq("status", "published")
+            .order("published_at", desc=True)
+            .limit(35)
+            .execute()
+        )
+        rows = res.data or []
+    except Exception:
+        return []
+
+    corroborated: list[dict] = []
+    single_source: list[dict] = []
+
+    for row in rows:
+        refs = row.get("story_references") or []
+        distinct_sources = {
+            (r.get("source_name") or "").strip()
+            for r in refs
+            if (r.get("source_name") or "").strip()
+        }
+        row["_source_count"] = len(distinct_sources) if distinct_sources else len(refs)
+        if row["_source_count"] >= 2:
+            corroborated.append(row)
+        else:
+            single_source.append(row)
+
+    # Guarantee at least 2 corroborated stories first, then fill up to 3 total stories (1 lead + 2 columns)
+    selected: list[dict] = []
+    selected.extend(corroborated[:3])
+    if len(selected) < 3:
+        selected.extend(single_source[: 3 - len(selected)])
+    return selected[:3]
+
+
 def render_public_landing(supabase: Client, logo_b64: str) -> None:
-    """Renders the split-screen broadsheet landing page: left branding + Google OAuth, right live front-page feed + policy links."""
+    """Renders the split-screen broadsheet landing page: left branding + Google OAuth, right print-newspaper front page."""
     _, code_challenge = get_pkce_pair()
     base_url = st.secrets["SUPABASE_URL"].rstrip("/")
     redirect_url = st.secrets.get("APP_REDIRECT_URL", "https://cruxly.streamlit.app")
@@ -134,22 +179,20 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
     )
 
     today_ist = datetime.now(IST).strftime("%A, %d %B %Y")
-    left_col, right_col = st.columns([1.0, 1.25], gap="large")
+    left_col, right_col = st.columns([1.0, 1.3], gap="large")
 
     # ---------------------------------------------------------
-    # LEFT COLUMN: ORIGINAL CRUXLY BRANDING + MULTICOLOR GOOGLE SIGN-IN
+    # LEFT COLUMN: ENLARGED CRUXLY LOGO + MULTICOLOR GOOGLE SIGN-IN
     # ---------------------------------------------------------
     with left_col:
         st.markdown(
             f"""
             <div class="landing-brand-panel">
                 <img src="data:image/jpeg;base64,{logo_b64}" class="landing-logo-img" alt="Cruxly Logo" />
-                <div class="landing-title">CRUXLY</div>
-                <div class="landing-tagline">Read deeper. Faster.</div>
                 <p class="landing-subtitle">
-                    An intelligent bilingual abridged newspaper service cross-verifying major English, Bengali, and Hindi dailies.
+                    An intelligent bilingual abridged newspaper service from leading English, Bengali, and Hindi dailies.
                 </p>
-                <div class="landing-feature-pill">📰 Twice-Daily Consolidated Dispatches</div>
+                <div class="landing-feature-pill">📰 Available in Morning &amp; Evening Edition</div>
                 <div class="landing-feature-pill">🔄 Multi-Source Cross-Referencing &amp; Clustering</div>
                 <div class="landing-feature-pill">🌐 Bilingual English &amp; Bengali Briefings</div>
                 <div class="landing-google-wrap">
@@ -167,51 +210,65 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
         )
 
     # ---------------------------------------------------------
-    # RIGHT COLUMN: DIGITAL NEWSPAPER FRONT-PAGE FEED + BOTTOM POLICY LINKS
+    # RIGHT COLUMN: PRINT-STYLE BROADSHEET FRONT PAGE + POLICY LINKS
     # ---------------------------------------------------------
     with right_col:
-        try:
-            preview_res = (
-                supabase.table("stories")
-                .select("id, headline_en, primary_genre, geography, summary_en, published_at")
-                .eq("status", "published")
-                .order("published_at", desc=True)
-                .limit(5)
-                .execute()
-            )
-            previews = preview_res.data or []
-        except Exception:
-            previews = []
+        previews = _select_front_page_stories(supabase)
 
-        articles_html = ""
-        if previews:
-            for idx, item in enumerate(previews):
-                headline = html.escape(item.get("headline_en") or "Untitled Briefing")
-                genre = html.escape(item.get("primary_genre") or "General")
-                geo = html.escape(item.get("geography") or "National")
-                dateline = html.escape(_format_ist_short(item.get("published_at")))
-                sum_obj = item.get("summary_en") or {}
-                raw_brief = (
-                    sum_obj.get("in_brief")
-                    or sum_obj.get("what_happened")
-                    or "Sign in with Google to read the complete consolidated briefing and original newspaper links."
-                ) if isinstance(sum_obj, dict) else str(sum_obj)
-                brief_text = html.escape(raw_brief[:240] + ("..." if len(raw_brief) > 240 else ""))
-                lead_class = "paper-lead-article" if idx == 0 else "paper-article"
-                articles_html += (
-                    f'<div class="{lead_class}">'
-                    f'<div class="paper-kicker">{genre.upper()} &bull; {geo.upper()} &bull; {dateline}</div>'
-                    f'<h3 class="paper-headline">{headline}</h3>'
-                    f'<p class="paper-excerpt">{brief_text}</p>'
-                    f'</div>'
+        def _build_article_block(item: dict, is_lead: bool) -> str:
+            headline = html.escape(item.get("headline_en") or "Untitled Briefing")
+            genre = html.escape(item.get("primary_genre") or "General")
+            geo = html.escape(item.get("geography") or "National")
+            dateline = html.escape(_format_ist_short(item.get("published_at")))
+            src_count = item.get("_source_count", 1)
+            corrob_tag = (
+                f' &bull; <span class="paper-corrob-badge">VERIFIED ACROSS {src_count} DAILIES</span>'
+                if src_count >= 2
+                else ""
+            )
+
+            sum_obj = item.get("summary_en") or {}
+            raw_brief = (
+                sum_obj.get("in_brief")
+                or sum_obj.get("what_happened")
+                or "Sign in with Google to read the complete consolidated briefing and original newspaper links."
+            ) if isinstance(sum_obj, dict) else str(sum_obj)
+
+            max_len = 230 if is_lead else 165
+            brief_text = html.escape(raw_brief[:max_len] + ("..." if len(raw_brief) > max_len else ""))
+
+            if is_lead:
+                return (
+                    f'<article class="paper-lead-story">'
+                    f'<div class="paper-kicker">{genre.upper()} &bull; {geo.upper()}{corrob_tag}</div>'
+                    f'<h2 class="paper-lead-headline">{headline}</h2>'
+                    f'<div class="paper-byline">{dateline}</div>'
+                    f'<p class="paper-lead-copy">{brief_text}</p>'
+                    f'</article>'
                 )
+            return (
+                f'<article class="paper-col-story">'
+                f'<div class="paper-kicker">{genre.upper()}{corrob_tag}</div>'
+                f'<h3 class="paper-col-headline">{headline}</h3>'
+                f'<div class="paper-byline">{geo} &bull; {dateline}</div>'
+                f'<p class="paper-col-copy">{brief_text}</p>'
+                f'</article>'
+            )
+
+        if previews:
+            lead_html = _build_article_block(previews[0], is_lead=True)
+            cols_html = ""
+            if len(previews) > 1:
+                sub_blocks = "".join(_build_article_block(p, is_lead=False) for p in previews[1:3])
+                cols_html = f'<div class="paper-columns-grid">{sub_blocks}</div>'
+            front_body_html = lead_html + cols_html
         else:
-            articles_html = (
-                '<div class="paper-lead-article">'
+            front_body_html = (
+                '<article class="paper-lead-story">'
                 '<div class="paper-kicker">FRONT PAGE EDITION</div>'
-                '<h3 class="paper-headline">Latest Consolidated Briefings</h3>'
-                '<p class="paper-excerpt">Sign in with your Google account on the left to access the full bilingual news archive and original newspaper links.</p>'
-                '</div>'
+                '<h2 class="paper-lead-headline">Latest Consolidated Briefings</h2>'
+                '<p class="paper-lead-copy">Sign in with Google on the left to access the full bilingual news archive and original newspaper links.</p>'
+                '</article>'
             )
 
         st.markdown(
@@ -219,15 +276,13 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
             <div class="newsprint-sheet">
                 <div class="newsprint-masthead">
                     <div class="newsprint-edition-bar">
-                        <span>DIGITAL BROADSHEET EDITION</span>
+                        <span>DIGITAL BROADSHEET</span>
                         <span>{today_ist}</span>
                     </div>
                     <div class="newsprint-paper-title">THE CRUXLY DISPATCH</div>
-                    <div class="newsprint-paper-sub">Latest Cross-Verified Headlines &bull; Sign in for Full Bilingual Synthesis &amp; Source Links</div>
+                    <div class="newsprint-paper-sub">Cross-Verified Front-Page Briefings &bull; Sign in for Full Bilingual Reports &amp; Source Links</div>
                 </div>
-                <div class="newsprint-feed">
-                    {articles_html}
-                </div>
+                {front_body_html}
                 <div class="newsprint-bottom-links">
                     <a href="?page=charter">Editorial Charter</a>
                     <span>&bull;</span>
