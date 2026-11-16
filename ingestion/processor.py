@@ -66,6 +66,47 @@ ASTROLOGY_PATTERNS = re.compile(
     flags=re.IGNORECASE,
 )
 
+# Cross-language entity canonicalization map (Bengali / Hindi -> canonical English concept token)
+# Allows matching reports across Anandabazar, Bartaman, The Hindu, TOI, Dainik Bhaskar, etc.
+CROSS_LANG_ENTITY_MAP: dict[str, str] = {
+    # Cities, States & Countries
+    "কলকাতা": "kolkata", "कोलकाता": "kolkata", "calcutta": "kolkata",
+    "পশ্চিমবঙ্গ": "bengal", "বাংলা": "bengal", "बंगाल": "bengal",
+    "দিল্লি": "delhi", "दिल्ली": "delhi",
+    "মুম্বই": "mumbai", "मुंबई": "mumbai",
+    "চেন্নাই": "chennai", "বেঙ্গালুরু": "bengaluru", "হায়দরাবাদ": "hyderabad",
+    "ভারত": "india", "भारत": "india",
+    "বাংলাদেশ": "bangladesh", "পাকিস্তান": "pakistan", "চীন": "china", "আমেরিকা": "usa",
+    "যাদবপুর": "jadavpur", "সল্টলেক": "saltlake", "হাওড়া": "howrah", "শিলিগুড়ি": "siliguri",
+    "দার্জিলিং": "darjeeling", "মালদা": "malda", "মুর্শিদাবাদ": "murshidabad", "বীরভূম": "birbhum",
+    "নন্দীগ্রাম": "nandigram", "সন্দেশখালি": "sandeshkhali", "আরজি কর": "rgkar",
+    # Institutions & Governance
+    "সুপ্রিম কোর্ট": "supremecourt", "सुप्रीम कोर्ट": "supremecourt",
+    "হাইকোর্ট": "highcourt", "हाईकोर्ट": "highcourt",
+    "নির্বাচন কমিশন": "electioncommission", "चुनाव आयोग": "electioncommission",
+    "সংসদ": "parliament", "লোকসভা": "loksabha", "বিধানসভা": "assembly",
+    "নবান্ন": "nabanna", "রাজভবন": "rajbhavan",
+    "পুলিশ": "police", "সিবিআই": "cbi", "ইডি": "ed", "এনআইএ": "nia",
+    "এসআইআর": "sir", "ভোটার": "voter", "আধার": "aadhaar",
+    "রেল": "railway", "মেট্রো": "metro", "বিমান": "flight",
+    "আরবিআই": "rbi", "সেবি": "sebi", "ইসরো": "isro", "নাসা": "nasa",
+    # Political Leaders & Parties
+    "মোদী": "modi", "মোদি": "modi", "मोदी": "modi",
+    "মমতা": "mamata", "ममता": "mamata",
+    "অভিষেক": "abhishek", "শুভেন্দু": "suvendu",
+    "অমিত শাহ": "amitshah", "রাহুল": "rahul", "ট্রাম্প": "trump",
+    "তৃণমূল": "tmc", "বিজেপি": "bjp", "কংগ্রেস": "congress", "সিপিএম": "cpim",
+    # Major Recurring Themes
+    "দূষণ": "pollution", "প্রদূষণ": "pollution", "প্রदूषण": "pollution",
+    "ঘূর্ণিঝড়": "cyclone", "বৃষ্টি": "rain", "বন্যা": "flood", "ভূমিকম্প": "earthquake",
+    "দুর্ঘটনা": "accident", "অগ্নিকাণ্ড": "fire", "বিস্ফোরণ": "blast",
+    "গ্রেফতার": "arrest", "খুন": "murder", "ধর্ষণ": "rape",
+    "পরীক্ষা": "exam", "নিয়োগ": "recruitment", "ধর্মঘট": "strike",
+    "ক্রিকেট": "cricket", "ফুটবল": "football", "আইপিএল": "ipl", "মোহনবাগান": "mohunbagan", "ইস্টবেঙ্গল": "eastbengal",
+}
+
+BN_TO_ASCII_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯०१२३४५६७८९", "01234567890123456789")
+
 
 def _is_astrology_item(title: str, snippet: str = "", url: str = "") -> bool:
     """Deterministically excludes horoscope, rashifal, zodiac, and astrology items across EN/BN/HI."""
@@ -98,7 +139,6 @@ def _clean_text(raw: str) -> str:
     """Strips HTML tags, trailing publisher suffixes from Google News titles, and excess whitespace."""
     text = re.sub(r"<[^>]+>", " ", raw or "")
     text = re.sub(r"\s+", " ", text).strip()
-    # Strip trailing ' - Publisher Name' appended by Google News RSS
     text = re.sub(
         r"\s+[\-\u2013\u2014]\s+(?:Anandabazar Patrika|Bartaman|Aajkaal|Sangbad Pratidin|Ei Samay|The Telegraph|The Hindu|The Indian Express|Times of India|Hindustan Times|NDTV).*$",
         "",
@@ -373,8 +413,8 @@ def fetch_rss_items(
 
 def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list[dict]]:
     """
-    Groups matching stories across English, Bengali, and Hindi feeds using multilingual Unicode tokenization.
-    When max_clusters is None (exhaustive backfill), returns all unique story clusters.
+    Groups matching stories across English, Bengali, and Hindi feeds using cross-language entity
+    canonicalization + Unicode tokenization so multi-newspaper reports merge into unified clusters.
     """
     clusters: list[list[dict]] = []
     stop_words = {
@@ -385,25 +425,56 @@ def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list
     }
 
     def tokenize(text: str) -> set[str]:
-        en_words = re.findall(r"[a-zA-Z]{4,}", text.lower())
-        indic_words = re.findall(r"[\u0980-\u09FF\u0900-\u097F]{2,}", text)
-        return {w for w in (en_words + indic_words) if w not in stop_words}
+        normalized = text.translate(BN_TO_ASCII_DIGITS).lower()
+        normalized = normalized.replace("supreme court", "supremecourt").replace("high court", "highcourt")
+        normalized = normalized.replace("election commission", "electioncommission").replace("amit shah", "amitshah")
+        normalized = normalized.replace("rg kar", "rgkar").replace("r.g. kar", "rgkar")
 
-    for item in items:
-        tokens = tokenize(item["title"])
+        canonical_tokens: set[str] = set()
+        for indic_phrase, canon in CROSS_LANG_ENTITY_MAP.items():
+            if indic_phrase in normalized:
+                canonical_tokens.add(canon)
+
+        en_words = re.findall(r"[a-zA-Z]{3,}", normalized)
+        indic_words = re.findall(r"[\u0980-\u09FF\u0900-\u097F]{2,}", normalized)
+        numbers = re.findall(r"\b\d{2,}\b", normalized)
+
+        for w in en_words + indic_words:
+            if w not in stop_words:
+                canonical_tokens.add(CROSS_LANG_ENTITY_MAP.get(w, w))
+        for num in numbers:
+            canonical_tokens.add(f"num_{num}")
+
+        return canonical_tokens
+
+    # Precompute token sets once per item for fast cross-language matching
+    item_tokens = [tokenize(f"{it['title']} {it.get('snippet', '')[:160]}") for it in items]
+
+    for idx, item in enumerate(items):
+        tokens = item_tokens[idx]
         placed = False
-        for cluster in clusters:
+        for c_idx, cluster in enumerate(clusters):
             existing_sources = {c["source_id"] for c in cluster}
             if item["source_id"] in existing_sources:
                 continue
-            ref_tokens = tokenize(cluster[0]["title"])
-            min_overlap = 2 if item["language"] == "bn" else 3
-            if tokens and ref_tokens and len(tokens & ref_tokens) >= min_overlap:
+            # Compare against union of tokens across all items already in the cluster
+            cluster_tokens: set[str] = set()
+            for member in cluster:
+                cluster_tokens |= member["_tokens"]
+            overlap = tokens & cluster_tokens
+            if len(overlap) >= 2:
+                item["_tokens"] = tokens
                 cluster.append(item)
                 placed = True
                 break
         if not placed:
+            item["_tokens"] = tokens
             clusters.append([item])
+
+    # Clean temporary _tokens key before returning
+    for cluster in clusters:
+        for member in cluster:
+            member.pop("_tokens", None)
 
     bn_clusters = [c for c in clusters if any(it["language"] == "bn" for it in c)]
     other_clusters = [c for c in clusters if not any(it["language"] == "bn" for it in c)]
@@ -677,8 +748,7 @@ def run_ingestion_cycle(
     exhaustive: bool = False,
 ) -> dict:
     """
-    Executes collect -> exclude astrology -> deduplicate -> cluster -> synthesize -> publish.
-    Preserves true source published_at dates (e.g. Nov 15) and fast-fails over on rate limits.
+    Executes collect -> exclude astrology -> deduplicate -> cross-language cluster -> synthesize -> publish.
     """
     slot = edition_slot if edition_slot in ALLOWED_EDITION_SLOTS else "live"
     since_dt_ist: datetime | None = None
