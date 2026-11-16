@@ -67,7 +67,6 @@ ASTROLOGY_PATTERNS = re.compile(
 )
 
 # Cross-language entity canonicalization map (Bengali / Hindi -> canonical English concept token)
-# Allows matching reports across Anandabazar, Bartaman, The Hindu, TOI, Dainik Bhaskar, etc.
 CROSS_LANG_ENTITY_MAP: dict[str, str] = {
     # Cities, States & Countries
     "কলকাতা": "kolkata", "कोलकाता": "kolkata", "calcutta": "kolkata",
@@ -350,20 +349,24 @@ def _has_bengali_script(text: str) -> bool:
     return bool(re.search(r"[\u0980-\u09FF]{4,}", text or ""))
 
 
-def _is_verbatim_copy(candidate: str, source_titles: list[str]) -> bool:
-    """Checks if a generated headline is an exact or near-verbatim copy of any source headline."""
-    cand_words = re.findall(r"[a-z0-9]+", (candidate or "").lower())
+def _is_verbatim_or_close_copy(candidate: str, source_titles: list[str]) -> bool:
+    """
+    Strictly rejects headlines that copy or lightly paraphrase any source newspaper title.
+    Flags overlap >= 55% of non-trivial content words.
+    """
+    stop = {"the", "and", "for", "with", "from", "into", "over", "after", "amid", "says", "said", "on", "in", "to", "of", "as", "at", "by"}
+    cand_words = [w for w in re.findall(r"[a-z0-9]+", (candidate or "").lower()) if w not in stop and len(w) > 2]
     if not cand_words:
         return True
     cand_set = set(cand_words)
     for src in source_titles:
-        src_words = re.findall(r"[a-z0-9]+", (src or "").lower())
+        src_words = [w for w in re.findall(r"[a-z0-9]+", (src or "").lower()) if w not in stop and len(w) > 2]
         if not src_words:
             continue
         if cand_words == src_words:
             return True
-        overlap_ratio = len(cand_set & set(src_words)) / max(len(cand_set), len(src_words))
-        if overlap_ratio >= 0.85:
+        overlap_ratio = len(cand_set & set(src_words)) / max(1, min(len(cand_set), len(src_words)))
+        if overlap_ratio >= 0.55:
             return True
     return False
 
@@ -463,8 +466,7 @@ def fetch_rss_items(
 def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list[dict]]:
     """
     Groups matching stories across distinct English, Bengali, and Hindi newspapers using
-    cross-language entity canonicalization, proper-noun matching, and publish-window proximity
-    so multi-newspaper reports merge into unified clusters.
+    cross-language entity canonicalization, proper-noun matching, and publish-window proximity.
     """
     clusters: list[list[dict]] = []
     stop_words = {
@@ -507,11 +509,9 @@ def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list
                 c.get("publisher_key") or _normalize_publisher_key(c["source_name"])
                 for c in cluster
             }
-            # Only merge coverage from genuinely distinct newspapers
             if item_pub_key in existing_publishers:
                 continue
 
-            # Ensure stories are within a 36-hour news-cycle window
             cluster_dts = [c["published_dt"] for c in cluster if isinstance(c.get("published_dt"), datetime)]
             if isinstance(item_dt, datetime) and cluster_dts:
                 if abs((item_dt - cluster_dts[0]).total_seconds()) > 36 * 3600:
@@ -525,7 +525,6 @@ def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list
             union_size = max(1, len(tokens | cluster_tokens))
             jaccard = len(overlap) / union_size
 
-            # Merge if at least 2 distinct entities/keywords overlap (or strong Jaccard similarity)
             if len(overlap) >= 2 or (len(overlap) >= 1 and jaccard >= 0.18):
                 item["_tokens"] = tokens
                 cluster.append(item)
@@ -543,7 +542,6 @@ def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list
     bn_clusters = [c for c in clusters if any(it["language"] == "bn" for it in c)]
     other_clusters = [c for c in clusters if not any(it["language"] == "bn" for it in c)]
 
-    # Prioritize multi-newspaper corroborated clusters first
     bn_clusters.sort(key=lambda c: len(c), reverse=True)
     other_clusters.sort(key=lambda c: len(c), reverse=True)
 
@@ -590,7 +588,7 @@ def _build_synthesis_prompt(cluster: list[dict], valid_genres: list[str]) -> str
         "You are a senior copy editor at a major Kolkata broadsheet. Synthesize the following news notes "
         "into an original, objective, consolidated abridged report in BOTH English and standard Bengali (বাংলা লিপি).\n"
         "CRITICAL EDITORIAL & COPYRIGHT PRINCIPLES:\n"
-        "1. ORIGINAL HEADLINE REGENERATION (MANDATORY): Both 'headline_en' and 'headline_bn' MUST be freshly written, original editorial headlines synthesized from the underlying facts. NEVER copy, mirror, or lightly reword any source headline verbatim.\n"
+        "1. ORIGINAL HEADLINE SYNTHESIS (STRICTLY MANDATORY): Write completely fresh, original editorial broadsheet headlines for 'headline_en' and 'headline_bn' using new sentence structure and vocabulary derived from the event facts. NEVER copy, mirror, or lightly reword any source headline.\n"
         f"2. {bn_guidance}\n"
         f"3. {entity_lock}\n"
         "4. Use West Bengal / Kolkata Bengali standard vocabulary and place orthography (Paschimbanga Bangla Akademi standard), never Hindi morphological calques (e.g., use 'বছর বয়সী', never 'বছরী'/'বছরীয়') and never Bangladeshi regional spellings.\n"
@@ -601,7 +599,7 @@ def _build_synthesis_prompt(cluster: list[dict], valid_genres: list[str]) -> str
         "9. Set 'is_sensitive' to true ONLY if the story involves unverified communal violence, graphic abuse of minors, or sensitive public-order rumors requiring editorial review; otherwise false.\n"
         "10. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT append '(Corroborated across...)' inside the text.\n\n"
         "Respond ONLY with a raw JSON object containing EXACTLY these keys:\n"
-        '- "headline_en": Freshly synthesized, non-verbatim factual English broadsheet headline (max 15 words).\n'
+        '- "headline_en": Freshly synthesized, non-verbatim factual English broadsheet headline (max 14 words).\n'
         '- "headline_bn": Freshly synthesized, non-verbatim idiomatic Bengali broadsheet headline in Bengali Unicode script.\n'
         '- "primary_genre": Exact string from the currently approved genres above.\n'
         '- "secondary_genres": Array of 0 to 2 additional genres from the approved genres.\n'
@@ -693,7 +691,7 @@ def synthesize_cluster(
             state_val = "West Bengal"
 
         raw_h_en = (parsed.get("headline_en") or "").strip()
-        if not raw_h_en or _is_verbatim_copy(raw_h_en, source_titles):
+        if not raw_h_en or _is_verbatim_or_close_copy(raw_h_en, source_titles):
             headline_en = _build_non_verbatim_fallback_headline(primary, genre, geo)
         else:
             headline_en = raw_h_en
@@ -756,13 +754,13 @@ def synthesize_cluster(
                             "role": "system",
                             "content": (
                                 "You are a senior copy editor at a Kolkata broadsheet following Paschimbanga Bangla Akademi standards. "
-                                "Output valid JSON only. Always generate original, non-verbatim editorial headlines; never copy source headlines."
+                                "Output valid JSON only. Always generate original, non-verbatim editorial headlines; never copy or lightly paraphrase source headlines."
                             ),
                         },
                         {"role": "user", "content": prompt},
                     ],
                     reasoning_effort="low",
-                    temperature=0.25,
+                    temperature=0.35,
                     max_tokens=4096,
                 )
                 content = chat_resp.choices[0].message.content or ""
@@ -812,6 +810,137 @@ def synthesize_cluster(
         },
         llm_error,
     )
+
+
+def regenerate_existing_headlines(
+    supabase,
+    groq_api_key: str | None = None,
+    gemini_api_key: str | None = None,
+    limit: int = 150,
+) -> dict:
+    """
+    One-time editorial maintenance helper: rewrites headline_en and headline_bn on existing
+    published stories in Supabase into fresh, non-verbatim broadsheet headlines derived from
+    their consolidated summaries, without altering IDs, timestamps, or source links.
+    """
+    try:
+        res = (
+            supabase.table("stories")
+            .select("id, headline_en, headline_bn, primary_genre, geography, summary_en, summary_bn")
+            .eq("status", "published")
+            .order("published_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = res.data or []
+    except Exception as exc:
+        return {"updated": 0, "message": f"Failed to fetch existing stories: {exc}"}
+
+    if not rows:
+        return {"updated": 0, "message": "No published stories found to regenerate."}
+
+    g_client = Groq(api_key=groq_api_key.strip(), max_retries=1) if (groq_api_key and Groq is not None) else None
+    gem_client = genai.Client(api_key=gemini_api_key.strip()) if (gemini_api_key and genai is not None) else None
+
+    updated_count = 0
+    errors: list[str] = []
+
+    for row in rows:
+        old_en = (row.get("headline_en") or "").strip()
+        old_bn = (row.get("headline_bn") or "").strip()
+        genre = row.get("primary_genre") or "General"
+        geo = row.get("geography") or "National"
+        sum_en_obj = row.get("summary_en") or {}
+        sum_bn_obj = row.get("summary_bn") or {}
+        brief_en = (sum_en_obj.get("in_brief") if isinstance(sum_en_obj, dict) else str(sum_en_obj)) or old_en
+        brief_bn = (sum_bn_obj.get("in_brief") if isinstance(sum_bn_obj, dict) else str(sum_bn_obj)) or old_bn
+
+        # Clean inline '(Corroborated across...)' if present in older summaries
+        clean_brief_en = re.sub(r"\s*\(Corroborated across[^)]*\)\.?", "", brief_en, flags=re.IGNORECASE).strip()
+
+        rewrite_prompt = (
+            "You are a senior copy editor at a Kolkata broadsheet. Rewrite the existing headline below into a completely fresh, "
+            "original, non-verbatim editorial broadsheet headline in BOTH English and West Bengal standard Bengali (বাংলা লিপি), "
+            "based strictly on the summary facts.\n"
+            "RULES:\n"
+            "1. Do NOT reuse the phrasing, word order, or structure of the Existing Headline.\n"
+            "2. Keep 'headline_en' crisp, factual, and under 14 words.\n"
+            "3. Write 'headline_bn' in natural Kolkata newspaper Bengali (Paschimbanga Bangla Akademi standard).\n"
+            "Respond ONLY with a raw JSON object containing keys \"headline_en\" and \"headline_bn\".\n\n"
+            f"Genre: {genre} | Geography: {geo}\n"
+            f"Existing English Headline (DO NOT COPY): {old_en}\n"
+            f"English Summary: {clean_brief_en}\n"
+            f"Bengali Summary: {brief_bn}"
+        )
+
+        new_en = ""
+        new_bn = ""
+
+        if g_client is not None:
+            for model_id in (PRIMARY_MODEL, BACKUP_MODEL):
+                try:
+                    resp = g_client.chat.completions.create(
+                        model=model_id,
+                        messages=[
+                            {"role": "system", "content": "Return strictly valid JSON with fresh non-verbatim broadsheet headlines."},
+                            {"role": "user", "content": rewrite_prompt},
+                        ],
+                        reasoning_effort="low",
+                        temperature=0.4,
+                        max_tokens=512,
+                    )
+                    parsed = _extract_json_object(resp.choices[0].message.content or "")
+                    new_en = (parsed.get("headline_en") or "").strip()
+                    new_bn = (parsed.get("headline_bn") or "").strip()
+                    if new_en:
+                        break
+                except Exception as exc:
+                    if str(exc) not in errors:
+                        errors.append(str(exc))
+
+        if not new_en and gem_client is not None:
+            try:
+                resp = gem_client.models.generate_content(model="gemini-2.5-flash", contents=rewrite_prompt)
+                parsed = _extract_json_object(resp.text or "")
+                new_en = (parsed.get("headline_en") or "").strip()
+                new_bn = (parsed.get("headline_bn") or "").strip()
+            except Exception as exc:
+                if str(exc) not in errors:
+                    errors.append(str(exc))
+
+        if not new_en or _is_verbatim_or_close_copy(new_en, [old_en]):
+            new_en = f"{genre} Dispatch: Key {geo} Developments"
+
+        new_bn = _apply_universal_bengali_morphology(new_bn)
+        if not _has_bengali_script(new_bn) or new_bn == old_bn:
+            new_bn = f"{genre} সংবাদ সংক্ষেপ"
+
+        updated_sum_en = dict(sum_en_obj) if isinstance(sum_en_obj, dict) else {"in_brief": clean_brief_en}
+        updated_sum_en["in_brief"] = clean_brief_en
+        updated_sum_bn = dict(sum_bn_obj) if isinstance(sum_bn_obj, dict) else {"in_brief": brief_bn}
+        updated_sum_bn["headline_bn"] = new_bn
+
+        try:
+            supabase.table("stories").update(
+                {
+                    "headline_en": new_en,
+                    "headline_bn": new_bn,
+                    "summary_en": updated_sum_en,
+                    "summary_bn": updated_sum_bn,
+                }
+            ).eq("id", row["id"]).execute()
+            updated_count += 1
+        except Exception as upd_exc:
+            if str(upd_exc) not in errors:
+                errors.append(str(upd_exc))
+
+        time.sleep(0.25)
+
+    diag = f" (Note: {errors[0]})" if errors else ""
+    return {
+        "updated": updated_count,
+        "message": f"Regenerated non-verbatim English & Bengali headlines for {updated_count} of {len(rows)} existing stories.{diag}",
+    }
 
 
 def run_ingestion_cycle(
@@ -871,96 +1000,4 @@ def run_ingestion_cycle(
     bn_published = 0
     multi_source_count = 0
     flagged_count = 0
-    skipped_dups = 0
-    errors: list[str] = []
-    now_ist = datetime.now(IST)
-    expires_ist_iso = (now_ist + timedelta(days=90)).isoformat()
-
-    for idx, cluster in enumerate(clusters):
-        norm_primary = re.sub(r"[^a-z0-9\u0980-\u09FF]+", " ", cluster[0]["title"].lower()).strip()
-        if norm_primary in existing_headlines:
-            skipped_dups += 1
-            continue
-
-        synthesized, llm_err = synthesize_cluster(
-            cluster,
-            gemini_api_key=gemini_api_key,
-            groq_api_key=groq_api_key,
-            valid_genres=valid_genre_names,
-        )
-        if llm_err and llm_err not in errors:
-            errors.append(llm_err)
-
-        norm_synth = re.sub(r"[^a-z0-9]+", " ", synthesized["headline_en"].lower()).strip()
-        if norm_synth in existing_headlines:
-            skipped_dups += 1
-            continue
-
-        safe_geography = synthesized["geography"]
-        if safe_geography not in ALLOWED_GEOGRAPHIES:
-            safe_geography = "National"
-
-        story_status = synthesized.get("status", "published")
-        story_published_iso = _resolve_cluster_published_at(cluster, now_ist)
-        story_payload = {
-            "headline_en": synthesized["headline_en"],
-            "headline_bn": synthesized["headline_bn"],
-            "primary_genre": synthesized["primary_genre"],
-            "secondary_genres": synthesized["secondary_genres"],
-            "geography": safe_geography,
-            "state_name": synthesized["state_name"] if safe_geography == "State" else None,
-            "edition_slot": slot,
-            "summary_en": synthesized["summary_en"],
-            "summary_bn": synthesized["summary_bn"],
-            "status": story_status,
-            "published_at": story_published_iso,
-            "expires_at": expires_ist_iso,
-        }
-        try:
-            insert_res = supabase.table("stories").insert(story_payload).execute()
-            if insert_res.data:
-                story_id = insert_res.data[0]["id"]
-                existing_headlines.add(norm_synth)
-                if len(cluster) >= 2:
-                    multi_source_count += 1
-                if story_status == "flagged_review":
-                    flagged_count += 1
-                if any(it["language"] == "bn" for it in cluster):
-                    bn_published += 1
-                refs = [
-                    {
-                        "story_id": story_id,
-                        "source_name": item["source_name"],
-                        "article_url": item["url"],
-                        "hindi_original_headline": item["title"] if item["language"] == "hi" else None,
-                    }
-                    for item in cluster
-                ]
-                try:
-                    supabase.table("story_references").insert(refs).execute()
-                except Exception as ref_exc:
-                    errors.append(f"Reference insert error: {ref_exc}")
-                published_count += 1
-        except Exception as ins_exc:
-            errors.append(str(ins_exc))
-            continue
-
-        if cluster_cap is None and idx < len(clusters) - 1:
-            time.sleep(0.6)
-
-    raw_items.clear()
-    fresh_items.clear()
-    clusters.clear()
-
-    diag_suffix = f" (Diagnostic: {errors[0]})" if errors else ""
-    flag_note = f", {flagged_count} held for sensitive review" if flagged_count else ""
-    mode_label = f"EXHAUSTIVE BACKFILL FROM {since_date}" if since_date else f"{slot.upper()} EDITION"
-    return {
-        "fetched": fetched_count,
-        "published": published_count,
-        "message": (
-            f"[{mode_label}] Fetched {fetched_count} RSS items ({bn_fetched} Bengali, excluded {astrology_skipped} astrology items), "
-            f"skipped {skipped_dups} duplicates, and published {published_count} consolidated briefings "
-            f"({multi_source_count} multi-newspaper corroborated, {bn_published} citing Bengali dailies{flag_note}).{diag_suffix}"
-        ),
-    }
+    skipped
