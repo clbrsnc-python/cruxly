@@ -47,81 +47,80 @@ st.markdown(
     div[data-testid="stHorizontalBlock"] {
         align-items: stretch !important;
     }
-    div[data-testid="stColumn"] > div {
+    div[data-testid="stColumn"] > div,
+    div[data-testid="stColumn"] > div > div[data-testid="stVerticalBlock"] {
         height: 100%;
     }
 
     /* ---------------------------------------------------------
-       SPLIT-SCREEN PUBLIC LANDING PAGE (BURGUNDY + PRINT BROADSHEET)
+       LEFT COLUMN: UNIFIED BURGUNDY BRAND CONTAINER
        --------------------------------------------------------- */
-    .landing-brand-panel {
-        background: linear-gradient(165deg, #3C0612 0%, #26030B 100%);
-        border: 2px solid #D4AF37;
-        border-radius: 14px;
-        padding: 24px 22px 18px 22px;
-        color: #FBF9F4;
+    div[data-testid="stColumn"]:first-child div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: linear-gradient(165deg, #3C0612 0%, #26030B 100%) !important;
+        border: 2px solid #D4AF37 !important;
+        border-radius: 14px !important;
+        padding: 22px 22px 16px 22px !important;
+        box-shadow: 0 8px 24px rgba(29, 18, 10, 0.16) !important;
+        height: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+    }
+    .brand-top-block {
         text-align: center;
-        box-shadow: 0 8px 24px rgba(29, 18, 10, 0.16);
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
     }
     .landing-logo-img {
-        width: 210px;
-        height: 210px;
+        width: 196px;
+        height: 196px;
         object-fit: cover;
         border-radius: 16px;
         border: 2.5px solid #D4AF37;
-        margin: 0 auto 16px auto;
+        margin: 0 auto 14px auto;
         display: block;
         box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
     }
     .landing-feature-pill {
-        background-color: rgba(255, 255, 255, 0.07);
-        border: 1px solid rgba(212, 175, 55, 0.65);
+        background-color: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(212, 175, 55, 0.7);
         border-radius: 8px;
-        padding: 8px 14px;
-        margin: 0 auto 8px auto;
+        padding: 7px 14px;
+        margin: 0 auto 7px auto;
         width: 100%;
-        max-width: 410px;
-        font-size: 0.94rem;
+        font-size: 0.92rem;
         font-weight: 600;
         color: #FBF9F4;
         text-align: left;
         box-sizing: border-box;
     }
 
-    /* Native st.link_button styled with Multicolor Google "G" Icon (Top-Frame Safe) */
-    .google-btn-holder {
-        display: flex;
-        justify-content: center;
-        margin: 14px auto 10px auto;
-    }
-    .google-btn-holder + div[data-testid="stLinkButton"],
+    /* Prominent Full-Width Multicolor Google Sign-In Button Inside Burgundy Card */
     div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] {
-        display: flex !important;
-        justify-content: center !important;
-        margin: 12px auto 10px auto !important;
+        margin: 10px 0 6px 0 !important;
+        width: 100% !important;
     }
     div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a {
+        width: 100% !important;
+        min-height: 48px !important;
         background-color: #FFFFFF !important;
         color: #1F1F1F !important;
         border: 2px solid #D4AF37 !important;
         border-radius: 8px !important;
-        padding: 10px 24px !important;
+        padding: 10px 20px !important;
         font-family: "Inter", "Times New Roman", sans-serif !important;
-        font-size: 1.03rem !important;
+        font-size: 1.06rem !important;
         font-weight: 700 !important;
-        display: inline-flex !important;
+        display: flex !important;
         align-items: center !important;
-        gap: 10px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28) !important;
+        justify-content: center !important;
+        gap: 12px !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32) !important;
+        text-decoration: none !important;
     }
     div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a::before {
         content: "";
         display: inline-block;
-        width: 20px;
-        height: 20px;
+        width: 22px;
+        height: 22px;
         flex-shrink: 0;
         background-repeat: no-repeat;
         background-size: contain;
@@ -134,28 +133,29 @@ st.markdown(
     }
 
     .landing-credit {
-        border-top: 1px solid rgba(212, 175, 55, 0.35);
+        border-top: 1px solid rgba(212, 175, 55, 0.45);
         padding-top: 10px;
         margin-top: 6px;
-        font-size: 0.84rem;
-        color: #E5D7C1;
+        font-size: 0.86rem;
+        color: #F3ECE0 !important;
         text-align: center;
     }
     .landing-credit span {
-        color: #E5C158;
+        color: #E5C158 !important;
         font-weight: bold;
     }
 
-    /* Right Column: Equal-Height Print-Style Digital Broadsheet */
+    /* ---------------------------------------------------------
+       RIGHT COLUMN: COMPACT PRINT-STYLE DIGITAL BROADSHEET
+       --------------------------------------------------------- */
     .newsprint-sheet {
         background-color: #FBF9F4;
         border: 2px solid #1D120A;
-        border-radius: 12px;
-        padding: 18px 22px;
+        border-radius: 14px;
+        padding: 16px 20px;
         color: #1D120A;
         box-shadow: 0 6px 20px rgba(29, 18, 10, 0.08);
         height: 100%;
-        min-height: 560px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -163,25 +163,25 @@ st.markdown(
     }
     .newsprint-masthead {
         border-bottom: 3px double #1D120A;
-        padding-bottom: 8px;
-        margin-bottom: 12px;
+        padding-bottom: 7px;
+        margin-bottom: 10px;
         text-align: center;
     }
     .newsprint-edition-bar {
         display: flex;
         justify-content: space-between;
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         font-weight: bold;
         letter-spacing: 0.06em;
         text-transform: uppercase;
         color: #5C4938;
         border-bottom: 1px solid #C8BFA8;
-        padding-bottom: 4px;
-        margin-bottom: 6px;
+        padding-bottom: 3px;
+        margin-bottom: 5px;
     }
     .newsprint-paper-title {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 1.55rem;
+        font-size: 1.45rem;
         font-weight: 800;
         letter-spacing: 0.06em;
         color: #3C0612;
@@ -189,84 +189,76 @@ st.markdown(
         line-height: 1.1;
     }
     .newsprint-paper-sub {
-        font-size: 0.82rem;
+        font-size: 0.78rem;
         font-style: italic;
         color: #4A3B2C;
-        margin-top: 3px;
+        margin-top: 2px;
     }
 
     /* Print Newspaper Lead Story + 2-Column Below Fold */
     .paper-lead-story {
         border-bottom: 1.5px solid #1D120A;
-        padding-bottom: 12px;
-        margin-bottom: 12px;
+        padding-bottom: 9px;
+        margin-bottom: 9px;
     }
     .paper-kicker {
-        font-size: 0.69rem;
+        font-size: 0.67rem;
         font-weight: bold;
         letter-spacing: 0.04em;
         color: #7A1C24;
-        margin-bottom: 3px;
-    }
-    .paper-corrob-badge {
-        background-color: #EFE9DA;
-        color: #3C0612;
-        border: 1px solid #B8A98E;
-        padding: 1px 5px;
-        border-radius: 3px;
-        font-size: 0.65rem;
+        margin-bottom: 2px;
     }
     .paper-lead-headline {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 1.18rem;
+        font-size: 1.06rem;
         font-weight: 700;
         color: #1D120A;
-        margin: 0 0 3px 0;
-        line-height: 1.25;
+        margin: 0 0 2px 0;
+        line-height: 1.22;
     }
     .paper-byline {
-        font-size: 0.73rem;
+        font-size: 0.7rem;
         font-style: italic;
         color: #6B5846;
-        margin-bottom: 5px;
+        margin-bottom: 4px;
     }
     .paper-lead-copy {
-        font-size: 0.9rem;
-        line-height: 1.44;
+        font-size: 0.84rem;
+        line-height: 1.38;
         color: #2B1E12;
         margin: 0;
     }
     .paper-columns-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 14px;
+        gap: 12px;
         align-items: start;
     }
     .paper-col-story:first-child {
         border-right: 1px solid #C8BFA8;
-        padding-right: 12px;
+        padding-right: 10px;
     }
     .paper-col-headline {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 0.98rem;
+        font-size: 0.9rem;
         font-weight: 700;
         color: #1D120A;
-        margin: 0 0 3px 0;
-        line-height: 1.26;
+        margin: 0 0 2px 0;
+        line-height: 1.22;
     }
     .paper-col-copy {
-        font-size: 0.85rem;
-        line-height: 1.4;
+        font-size: 0.8rem;
+        line-height: 1.35;
         color: #33261A;
         margin: 0;
     }
 
     .newsprint-bottom-links {
         border-top: 2px solid #1D120A;
-        margin-top: 14px;
-        padding-top: 10px;
+        margin-top: 10px;
+        padding-top: 8px;
         text-align: center;
-        font-size: 0.84rem;
+        font-size: 0.82rem;
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
@@ -494,9 +486,6 @@ st.markdown(
             border-bottom: 1px solid #C8BFA8;
             padding-right: 0;
             padding-bottom: 10px;
-        }
-        .newsprint-sheet {
-            min-height: auto;
         }
         .cruxly-dateline {
             margin-left: 0;
