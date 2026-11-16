@@ -79,7 +79,7 @@ def _pin_to_state(pin_code: str) -> str:
 
 
 def _get_in_brief_en(summary_en: dict) -> str:
-    """Returns unified English 'In brief' text, maintaining backward compatibility with older records."""
+    """Returns unified English 'In brief' text, maintaining backward compatibility."""
     if not summary_en:
         return "—"
     if summary_en.get("in_brief"):
@@ -208,13 +208,11 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
                 date_str = _format_story_date(story.get("published_at"))
 
                 geo_label = story.get("geography", "National")
-                if geo_label == "State":
-                    geo_badge = f"State ({st.session_state['reader_state']})"
-                else:
-                    geo_badge = geo_label
+                story_state = story.get("state_name") or st.session_state["reader_state"]
+                geo_badge = f"State ({story_state})" if geo_label == "State" else geo_label
 
                 headline_en = story.get("headline_en", "Untitled Report")
-                headline_bn = summary_bn.get("headline_bn") or headline_en
+                headline_bn = story.get("headline_bn") or summary_bn.get("headline_bn") or headline_en
 
                 if lang_choice == "Bengali (বাংলা)":
                     title_html = f"<h3>{headline_bn}</h3>"
@@ -281,7 +279,7 @@ def render_reader_portal(supabase: Client, user, profile: dict) -> None:
             try:
                 arch_res = (
                     supabase.table("stories")
-                    .select("id, headline_en, primary_genre, geography, published_at")
+                    .select("id, headline_en, headline_bn, primary_genre, geography, published_at")
                     .eq("status", "published")
                     .ilike("headline_en", f"%{search_q}%")
                     .order("published_at", desc=True)
