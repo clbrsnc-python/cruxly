@@ -1,155 +1,384 @@
+from datetime import datetime
+import pytz
 import streamlit as st
 from supabase import Client
-from ingestion.processor import run_ingestion_cycle
+from ingestion.processor import (
+    DEFAULT_DPR_GENRES,
+    run_ingestion_cycle,
+)
+from ingestion.sources import get_active_sources
+
+IST = pytz.timezone("Asia/Kolkata")
 
 
-def render_admin_portal(supabase: Client, current_user_id: str, user_roles: list[str]) -> None:
-    """Renders the Administrator Console for Reader Access Governance, News Ingestion, and Audit Logs."""
-    is_super_admin = "super_admin" in user_roles
+def _log_admin_action(
+    supabase: Client,
+    actor_id: str,
+    action_type: str,
+    action: str,
+    target_table: str,
+    target_entity: str,
+    target_id: str | None = None,
+    before_state: dict | None = None,
+    after_state: dict | None = None,
+) -> None:
+    """Records immutable administrative governance actions in public.audit_logs."""
+    try:
+        payload = {
+            "actor_id": actor_id,
+            "action_type": action_type,
+            "action": action,
+            "target_table": target_table,
+            "target_entity": target_entity,
+            "target_id": target_id,
+            "before_state": before_state or {},
+            "after_state": after_state or {},
+            "outcome": "success",
+            "created_at": datetime.now(IST).isoformat(),
+        }
+        supabase.table("audit_logs").insert(payload).execute()
+    except Exception:
+        pass
 
-    st.markdown("---")
-    st.markdown("### Administrator Console — Governance & News Pipeline")
 
-    tab_users, tab_ingest, tab_audit = st.tabs(
-        ["User Approval & Governance", "News Ingestion Control", "System Audit Logs"]
+def render_admin_portal(supabase: Client, user, profile: dict) -> None:
+    """Renders the Super Admin / Admin governance console per DPR specifications."""
+    st.markdown(
+        '<div class="cruxly-card">'
+        '<h3>Administrator Governance Console</h3>'
+        '<p>Manage reader onboarding approvals, run Live / Morning / Evening / Exhaustive Backfill synthesis cycles, '
+        'govern the 12 approved DPR genres, and moderate sensitive stories with full audit logging.</p>'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
-    # 1. USER APPROVAL & GOVERNANCE
+    tab_users, tab_ingest, tab_genres, tab_stories, tab_audit = st.tabs(
+        [
+            "User Approvals",
+            "News Ingestion Control",
+            "Genre Governance (DPR)",
+            "Story & Sensitive Review",
+            "Audit Logs",
+        ]
+    )
+
+    # 1. USER APPROVALS
     with tab_users:
-        status_filter = st.selectbox(
-            "Filter Accounts by Status",
-            ["All", "pending", "approved", "rejected"],
-            key="admin_user_filter",
-        )
         try:
-            query = supabase.table("users").select(
-                "id, full_name, email, account_status, roles, approved_by, approved_at, rejection_reason"
+            users_res = (
+                supabase.table("users")
+                .select("id, full_name, email, role, account_status, created_at")
+                .order("created_at", desc=True)
+                .execute()
             )
-            if status_filter != "All":
-                query = query.eq("account_status", status_filter)
-            all_users_res = query.order("email").execute()
-            all_users = all_users_res.data or []
-        except Exception as admin_exc:
+            all_users = users_res.data or []
+        except Exception as exc:
             all_users = []
-            st.error(f"Could not load user directory: {admin_exc}")
+            st.error(f"Could not fetch user accounts: {exc}")
 
-        if not all_users:
-            st.info("No user records match the selected filter.")
-
-        for u_row in all_users:
-            u_id = u_row["id"]
-            u_status = u_row.get("account_status", "pending")
-            u_roles = ", ".join(u_row.get("roles") or ["app_user"])
-            rej_note = u_row.get("rejection_reason")
-
-            user_card_html = (
-                f'<div class="cruxly-card">'
-                f'<span class="badge-tag">Status: {u_status.upper()} | Roles: {u_roles}</span>'
-                f'<h3>{u_row.get("full_name") or "Reader"} ({u_row.get("email")})</h3>'
-                f'<p style="font-size: 0.92rem; color: #1B4965;">'
-                f'Reviewed At: {u_row.get("approved_at") or "—"} | '
-                f'Reviewed By ID: {u_row.get("approved_by") or "—"}'
-                f'{f" | Reason: {rej_note}" if rej_note else ""}'
-                f'</p>'
-                f'</div>'
-            )
-            st.markdown(user_card_html, unsafe_allow_html=True)
-
-            if u_id != current_user_id:
-                c1, c2, c3 = st.columns([1, 1, 3])
-                with c3:
-                    reason_input = st.text_input(
-                        "Optional rejection note",
-                        key=f"reason_{u_id}",
-                        placeholder="Enter reason if rejecting...",
-                        label_visibility="collapsed",
-                    )
+        pending = [u for u in all_users if u.get("account_status") == "pending"]
+        st.markdown(f"#### Pending Registration Requests ({len(pending)})")
+        if not pending:
+            st.info("No pending reader accounts awaiting approval.")
+        else:
+            for u in pending:
+                uid = u["id"]
+                st.markdown(
+                    f'<div class="cruxly-card">'
+                    f'<h3>{u.get("full_name") or "Applicant"}</h3>'
+                    f'<p><strong>Email:</strong> {u.get("email")} | <strong>Role:</strong> {u.get("role")}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                c1, c2 = st.columns(2)
                 with c1:
-                    if u_status != "approved" and st.button("Approve", key=f"app_{u_id}"):
-                        supabase.table("users").update(
-                            {"account_status": "approved", "rejection_reason": None}
-                        ).eq("id", u_id).execute()
+                    if st.button("Approve Reader", key=f"app_{uid}"):
+                        supabase.table("users").update({"account_status": "approved"}).eq("id", uid).execute()
+                        _log_admin_action(
+                            supabase,
+                            user.id,
+                            "USER_APPROVAL",
+                            "Approved reader account",
+                            "users",
+                            u.get("email", uid),
+                            target_id=uid,
+                            before_state={"account_status": "pending"},
+                            after_state={"account_status": "approved"},
+                        )
+                        st.success(f"Approved {u.get('email')}.")
                         st.rerun()
                 with c2:
-                    if u_status != "rejected" and st.button("Reject", key=f"rej_{u_id}"):
-                        supabase.table("users").update(
-                            {
-                                "account_status": "rejected",
-                                "rejection_reason": reason_input.strip() or None,
-                            }
-                        ).eq("id", u_id).execute()
+                    if st.button("Reject Application", key=f"rej_{uid}"):
+                        supabase.table("users").update({"account_status": "rejected"}).eq("id", uid).execute()
+                        _log_admin_action(
+                            supabase,
+                            user.id,
+                            "USER_REJECTION",
+                            "Rejected reader account",
+                            "users",
+                            u.get("email", uid),
+                            target_id=uid,
+                            before_state={"account_status": "pending"},
+                            after_state={"account_status": "rejected"},
+                        )
+                        st.warning(f"Rejected {u.get('email')}.")
                         st.rerun()
 
-    # 2. MANUAL NEWS INGESTION TEST TRIGGER (Super Admin Only)
+    # 2. NEWS INGESTION CONTROL (LIVE, MORNING, EVENING, EXHAUSTIVE BACKFILL)
     with tab_ingest:
-        if not is_super_admin:
-            st.info("News ingestion controls are restricted to Super Administrators.")
-        else:
+        sources = get_active_sources()
+        st.markdown(
+            f'<div class="cruxly-card">'
+            f'<h3>Active RSS Collection Registry ({len(sources)} Newspapers)</h3>'
+            f'<p>Collects headlines and snippets across English, Bengali, and Hindi dailies, '
+            f'automatically excludes astrology/horoscope clutter, clusters related reports, '
+            f'runs 2-pass Bengali copy-editing, and publishes consolidated bilingual briefings.</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        ic1, ic2 = st.columns([2, 1.5])
+        with ic1:
+            slot_choice = st.selectbox(
+                "Target Edition Slot",
+                ["live", "morning", "evening"],
+                format_func=lambda s: {
+                    "live": "Live Feed (Instant Update)",
+                    "morning": "Morning Consolidated Edition (06:00 AM IST Slot)",
+                    "evening": "Evening Consolidated Edition (06:00 PM IST Slot)",
+                }[s],
+                key="admin_edition_slot",
+            )
+        with ic2:
+            exhaustive_on = st.checkbox(
+                "Exhaustive Backfill Mode (All unique clusters from date)",
+                value=False,
+                key="admin_exhaustive_toggle",
+            )
+
+        since_str = None
+        if exhaustive_on:
+            since_val = st.date_input(
+                "Collect All Non-Astrology Stories From Date",
+                value=datetime(2026, 11, 15).date(),
+                key="admin_since_date",
+            )
+            since_str = since_val.strftime("%Y-%m-%d")
+
+        if st.button("Run News Cycle Now", type="primary", key="run_cycle_btn"):
             gemini_key = st.secrets.get("GEMINI_API_KEY")
             groq_key = st.secrets.get("GROQ_API_KEY")
-            ai_status = (
-                "Groq API Connected"
-                if groq_key
-                else (
-                    "Gemini API Connected"
-                    if gemini_key
-                    else "Fallback Mode (Add GROQ_API_KEY or GEMINI_API_KEY in Streamlit Secrets for AI bilingual synthesis)"
+            with st.spinner("Fetching feeds, filtering astrology, clustering reports, and synthesizing bilingual briefings..."):
+                result = run_ingestion_cycle(
+                    supabase,
+                    gemini_api_key=gemini_key,
+                    groq_api_key=groq_key,
+                    edition_slot=slot_choice,
+                    since_date=since_str,
+                    exhaustive=exhaustive_on,
                 )
+            _log_admin_action(
+                supabase,
+                user.id,
+                "INGESTION_RUN",
+                f"Executed {slot_choice} ingestion cycle (exhaustive={exhaustive_on})",
+                "stories",
+                f"edition:{slot_choice}",
+                after_state=result,
             )
-            ingest_card_html = (
-                f'<div class="cruxly-card">'
-                f'<h3>Multi-Source RSS Collection &amp; Cross-Verification</h3>'
-                f'<p><strong>Synthesis Engine:</strong> {ai_status}</p>'
-                f'<p>Click below to collect current headlines across your selected English, Bengali, and Hindi sources, cluster matching reports, and publish consolidated briefings to the Live Feed.</p>'
-                f'</div>'
-            )
-            st.markdown(ingest_card_html, unsafe_allow_html=True)
+            st.success(result["message"])
 
-            if st.button("Run News Cycle Now", key="run_news_cycle_btn"):
-                with st.spinner("Collecting RSS feeds, clustering stories, and publishing consolidated briefings..."):
-                    result = run_ingestion_cycle(
+    # 3. GENRE GOVERNANCE (DPR SECTION: ADD / EDIT / DELETE WITH STORY REASSIGNMENT)
+    with tab_genres:
+        st.markdown(
+            '<div class="cruxly-card">'
+            '<h3>Approved DPR Genres Management</h3>'
+            '<p>AI classifies stories strictly within currently active genres below. '
+            'Deleting or deactivating a genre requires reassigning existing stories to another active genre first.</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        try:
+            g_res = supabase.table("genres").select("*").order("id").execute()
+            db_genres = g_res.data or []
+        except Exception as g_exc:
+            db_genres = []
+            st.error(f"Could not load public.genres: {g_exc}")
+
+        if not db_genres:
+            st.warning("public.genres table is currently empty. Seed the 12 official DPR genres in one click:")
+            if st.button("Seed 12 Official DPR Genres", type="primary", key="seed_genres_btn"):
+                seed_rows = [
+                    {"name_en": g["name_en"], "name_bn": g["name_bn"], "is_active": True}
+                    for g in DEFAULT_DPR_GENRES
+                ]
+                supabase.table("genres").insert(seed_rows).execute()
+                _log_admin_action(
+                    supabase,
+                    user.id,
+                    "GENRE_SEED",
+                    "Seeded 12 official DPR genres",
+                    "genres",
+                    "default_12_genres",
+                )
+                st.success("Seeded all 12 approved DPR genres.")
+                st.rerun()
+
+        with st.expander("Add New Approved Genre"):
+            new_en = st.text_input("Genre Name (English)", key="new_genre_en")
+            new_bn = st.text_input("Genre Name (Bengali / বাংলা)", key="new_genre_bn")
+            if st.button("Create Genre", key="create_genre_btn"):
+                if new_en.strip() and new_bn.strip():
+                    supabase.table("genres").insert(
+                        {"name_en": new_en.strip(), "name_bn": new_bn.strip(), "is_active": True}
+                    ).execute()
+                    _log_admin_action(
                         supabase,
-                        gemini_api_key=gemini_key,
-                        groq_api_key=groq_key,
+                        user.id,
+                        "GENRE_CREATE",
+                        f"Added genre {new_en.strip()}",
+                        "genres",
+                        new_en.strip(),
+                        after_state={"name_en": new_en.strip(), "name_bn": new_bn.strip()},
                     )
-                st.session_state["last_ingest_result"] = result
-
-            if "last_ingest_result" in st.session_state:
-                res = st.session_state["last_ingest_result"]
-                if res.get("published", 0) > 0:
-                    st.success(res["message"])
+                    st.success(f"Added '{new_en.strip()}'.")
+                    st.rerun()
                 else:
-                    st.warning(res.get("message", "No new stories were published."))
+                    st.warning("Please enter both English and Bengali genre names.")
 
-    # 3. IMMUTABLE AUDIT LOGS (Super Admin Only)
-    with tab_audit:
-        if not is_super_admin:
-            st.info("Audit logs are restricted to Super Administrators.")
-        else:
-            try:
-                logs_res = (
-                    supabase.table("audit_logs")
-                    .select("created_at, action_type, target_entity, actor_id, outcome, before_state, after_state")
-                    .order("created_at", desc=True)
-                    .limit(30)
-                    .execute()
-                )
-                logs = logs_res.data or []
-            except Exception as log_exc:
-                logs = []
-                st.error(f"Could not load audit logs: {log_exc}")
+        if db_genres:
+            active_names = [g["name_en"] for g in db_genres if g.get("is_active", True)]
+            for g_row in db_genres:
+                gid = g_row["id"]
+                g_en = g_row["name_en"]
+                g_bn = g_row.get("name_bn") or ""
+                is_act = g_row.get("is_active", True)
 
-            if not logs:
-                st.info("No governance audit events recorded yet.")
-            else:
-                for log in logs:
-                    log_card_html = (
-                        f'<div class="cruxly-card">'
-                        f'<span class="badge-tag">{log.get("action_type", "event")} | Outcome: {log.get("outcome", "success")}</span>'
-                        f'<p><strong>Timestamp:</strong> {log.get("created_at")} | <strong>Target:</strong> {log.get("target_entity")}</p>'
-                        f'<p style="font-size: 0.9rem; color: #1B4965;">'
-                        f'<strong>Before:</strong> {log.get("before_state")} → <strong>After:</strong> {log.get("after_state")}'
-                        f'</p>'
-                        f'</div>'
+                col1, col2, col3 = st.columns([2.2, 1.8, 1.5])
+                with col1:
+                    st.markdown(f"**{g_en}** ({g_bn}) — `{'ACTIVE' if is_act else 'INACTIVE'}`")
+                with col2:
+                    other_targets = [name for name in active_names if name != g_en]
+                    target_genre = st.selectbox(
+                        "Reassign stories to",
+                        other_targets or ["Politics & Governance"],
+                        key=f"reassign_target_{gid}",
+                        label_visibility="collapsed",
                     )
-                    st.markdown(log_card_html, unsafe_allow_html=True)
+                with col3:
+                    if st.button("Reassign & Delete", key=f"del_genre_{gid}"):
+                        supabase.table("stories").update({"primary_genre": target_genre}).eq("primary_genre", g_en).execute()
+                        supabase.table("genres").delete().eq("id", gid).execute()
+                        _log_admin_action(
+                            supabase,
+                            user.id,
+                            "GENRE_DELETE",
+                            f"Reassigned '{g_en}' to '{target_genre}' and deleted genre",
+                            "genres",
+                            g_en,
+                            before_state={"deleted_genre": g_en},
+                            after_state={"reassigned_to": target_genre},
+                        )
+                        st.success(f"Reassigned stories to '{target_genre}' and deleted '{g_en}'.")
+                        st.rerun()
+
+    # 4. STORY & SENSITIVE NEWS MODERATION
+    with tab_stories:
+        st.markdown("#### Recent Stories & Sensitive News Safeguard Queue")
+        status_filter = st.selectbox(
+            "Filter by Publication Status",
+            ["All", "flagged_review", "published", "withheld_sensitive"],
+            key="admin_story_status_filter",
+        )
+        try:
+            sq = supabase.table("stories").select(
+                "id, headline_en, headline_bn, primary_genre, geography, edition_slot, status, published_at"
+            )
+            if status_filter != "All":
+                sq = sq.eq("status", status_filter)
+            s_res = sq.order("published_at", desc=True).limit(25).execute()
+            recent_stories = s_res.data or []
+        except Exception as s_exc:
+            recent_stories = []
+            st.error(f"Could not fetch stories: {s_exc}")
+
+        if not recent_stories:
+            st.info("No stories found for the selected status.")
+        else:
+            for st_row in recent_stories:
+                sid = st_row["id"]
+                cur_status = st_row.get("status", "published")
+                st.markdown(
+                    f'<div class="cruxly-card">'
+                    f'<span class="badge-tag">{st_row.get("primary_genre")} | {st_row.get("geography")} | {st_row.get("edition_slot", "live").upper()} | {cur_status.upper()}</span>'
+                    f'<h3>{st_row.get("headline_en")}</h3>'
+                    f'<p>{st_row.get("headline_bn") or ""}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                sc1, sc2, sc3 = st.columns(3)
+                with sc1:
+                    if cur_status != "published" and st.button("Approve & Publish", key=f"pub_{sid}"):
+                        supabase.table("stories").update({"status": "published"}).eq("id", sid).execute()
+                        _log_admin_action(
+                            supabase,
+                            user.id,
+                            "STORY_PUBLISH",
+                            "Published story",
+                            "stories",
+                            st_row.get("headline_en", sid)[:80],
+                            target_id=sid,
+                            before_state={"status": cur_status},
+                            after_state={"status": "published"},
+                        )
+                        st.rerun()
+                with sc2:
+                    if cur_status != "flagged_review" and st.button("Flag for Review", key=f"flg_{sid}"):
+                        supabase.table("stories").update({"status": "flagged_review"}).eq("id", sid).execute()
+                        _log_admin_action(
+                            supabase,
+                            user.id,
+                            "STORY_FLAG",
+                            "Flagged story for review",
+                            "stories",
+                            st_row.get("headline_en", sid)[:80],
+                            target_id=sid,
+                            before_state={"status": cur_status},
+                            after_state={"status": "flagged_review"},
+                        )
+                        st.rerun()
+                with sc3:
+                    if cur_status != "withheld_sensitive" and st.button("Withhold (Sensitive)", key=f"wh_{sid}"):
+                        supabase.table("stories").update({"status": "withheld_sensitive"}).eq("id", sid).execute()
+                        _log_admin_action(
+                            supabase,
+                            user.id,
+                            "STORY_WITHHOLD",
+                            "Withheld sensitive story",
+                            "stories",
+                            st_row.get("headline_en", sid)[:80],
+                            target_id=sid,
+                            before_state={"status": cur_status},
+                            after_state={"status": "withheld_sensitive"},
+                        )
+                        st.rerun()
+
+    # 5. AUDIT LOGS
+    with tab_audit:
+        st.markdown("#### Governance & Editorial Audit Trail")
+        try:
+            logs_res = (
+                supabase.table("audit_logs")
+                .select("created_at, action_type, action, target_entity, outcome")
+                .order("created_at", desc=True)
+                .limit(30)
+                .execute()
+            )
+            logs = logs_res.data or []
+            if not logs:
+                st.info("No audit log entries recorded yet.")
+            else:
+                st.dataframe(logs, use_container_width=True)
+        except Exception as log_exc:
+            st.error(f"Could not fetch audit logs: {log_exc}")
