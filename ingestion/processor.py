@@ -15,31 +15,60 @@ try:
 except Exception:
     Groq = None
 
+try:
+    from indic_transliteration import sanscript
+    from indic_transliteration.sanscript import transliterate
+except Exception:
+    sanscript = None
+    transliterate = None
+
 IST = pytz.timezone("Asia/Kolkata")
 
-GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+PRIMARY_MODEL = "openai/gpt-oss-120b"
+BACKUP_MODEL = "openai/gpt-oss-20b"
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
-APPROVED_GENRES = [
-    "Politics & Governance",
-    "Education",
-    "Science & Technology",
-    "Business & Economy",
-    "Health",
-    "Sports",
-    "Entertainment",
-    "Environment & Climate",
-    "Crime & Law",
-    "Agriculture & Rural Affairs",
-    "Career & Employment",
-    "Culture & Literature",
+DEFAULT_DPR_GENRES = [
+    {"name_en": "Politics & Governance", "name_bn": "রাজনীতি ও প্রশাসন"},
+    {"name_en": "Education", "name_bn": "শিক্ষা"},
+    {"name_en": "Science & Technology", "name_bn": "বিজ্ঞান ও প্রযুক্তি"},
+    {"name_en": "Business & Economy", "name_bn": "ব্যবসা ও অর্থনীতি"},
+    {"name_en": "Health", "name_bn": "স্বাস্থ্য"},
+    {"name_en": "Sports", "name_bn": "খেলাধুলা"},
+    {"name_en": "Entertainment", "name_bn": "বিনোদন"},
+    {"name_en": "Environment & Climate", "name_bn": "পরিবেশ ও জলবায়ু"},
+    {"name_en": "Crime & Law", "name_bn": "অপরাধ ও আইন"},
+    {"name_en": "Agriculture & Rural Affairs", "name_bn": "কৃষি ও গ্রামীণ বিষয়"},
+    {"name_en": "Career & Employment", "name_bn": "কর্মসংস্থান ও পেশা"},
+    {"name_en": "Culture & Literature", "name_bn": "সংস্কৃতি ও সাহিত্য"},
 ]
 
+APPROVED_GENRES = [g["name_en"] for g in DEFAULT_DPR_GENRES]
+
 ALLOWED_GEOGRAPHIES = ("State", "National", "International")
+ALLOWED_EDITION_SLOTS = ("morning", "evening", "live")
+
+
+def fetch_approved_genres(supabase) -> list[dict]:
+    """Fetches active approved genres from public.genres, falling back to the 12 default DPR genres."""
+    try:
+        res = (
+            supabase.table("genres")
+            .select("id, name_en, name_bn, is_active")
+            .eq("is_active", True)
+            .order("id")
+            .execute()
+        )
+        rows = res.data or []
+        if rows:
+            return rows
+    except Exception:
+        pass
+    return [{"id": idx + 1, "name_en": g["name_en"], "name_bn": g["name_bn"], "is_active": True} for idx, g in enumerate(DEFAULT_DPR_GENRES)]
 
 
 def _clean_text(raw: str) -> str:
@@ -48,41 +77,39 @@ def _clean_text(raw: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _polish_bengali_grammar(text: str) -> str:
+def _extract_named_entities(cluster: list[dict]) -> tuple[list[str], list[str]]:
     """
-    Fixes common LLM Hindi-calque artifacts, suffix glitches, and non-standard place spellings
-    to match standard Kolkata Bengali journalism (Anandabazar / Ei Samay house style).
+    Algorithmically extracts Proper Nouns and ALL-CAPS Acronyms from English source headlines
+    so the Bengali editor transliterates them accurately without literal word-for-word translation.
+    """
+    acronyms: set[str] = set()
+    proper_nouns: set[str] = set()
+    ignore_caps = {"THE", "AND", "FOR", "WITH", "FROM", "INTO", "OVER", "AFTER", "AMID", "SAYS", "NEW", "WILL", "HOW", "WHY", "WHAT"}
+
+    for item in cluster:
+        if item.get("language") != "en":
+            continue
+        title = item.get("title") or ""
+        for acr in re.findall(r"\b[A-Z]{2,6}\b", title):
+            if acr not in ignore_caps:
+                acronyms.add(acr)
+        for match in re.findall(r"\b(?:[A-Z][a-z]{2,}\s+){1,3}[A-Z][a-z]{2,}\b", title):
+            proper_nouns.add(match.strip())
+
+    return sorted(acronyms), sorted(proper_nouns)
+
+
+def _apply_universal_bengali_morphology(text: str) -> str:
+    """
+    Applies purely structural, algorithmic Bengali grammar & typography rules:
+      1. Fixes Hindi '-varshiya' age calques ([digits]-বছরী/বছরীয় -> [digits] বছর বয়সী)
+      2. Moves Bengali case suffixes trapped outside closing quotation marks back inside
     """
     if not text:
         return text
 
-    # 1. Fix Hindi '-varshiya' calques: ৬-বছরীর / ৮-বছরীয় / ৬ বছরী -> ৬ বছর বয়সী
     text = re.sub(r"([০-৯0-9]+)[\s\-‑]*বছরীয়?[াীের]*", r"\1 বছর বয়সী", text)
-
-    # 2. Fix case suffixes orphaned outside closing quotes: ‘এনকাউন্টার’ে -> ‘এনকাউন্টারে’
     text = re.sub(r"([‘’'\"])([েয়কেতর])", r"\2\1", text)
-
-    # 3. Standardize Kolkata Bengali press spellings for Indian places & journalistic terms
-    replacements = {
-        "পঞ্চকুলা": "পাঁচকুলা",
-        "ম্যানিফেস্টা": "নির্বাচনী ইস্তাহার",
-        "ম্যানিফেস্টো": "নির্বাচনী ইস্তাহার",
-        "নয়া দিল্লি": "নয়াদিল্লি",
-        "নিউ দিল্লি": "নয়াদিল্লি",
-        "বেঙ্গালোর": "বেঙ্গালুরু",
-        "ব্যাঙ্গালোর": "বেঙ্গালুরু",
-        "বোম্বে": "মুম্বই",
-        "মাদ্রাজ": "চেন্নাই",
-        "উড়িষ্যা": "ওড়িশা",
-        "উড়িষ্যা": "ওড়িশা",
-        "ছত্তিশগড়": "ছত্তীসগঢ়",
-        "চন্ডিগড়": "চণ্ডীগড়",
-        "গুরগাঁও": "গুরুগ্রাম",
-        "এলাহাবাদ": "প্রয়াগরাজ",
-    }
-    for bad, good in replacements.items():
-        text = text.replace(bad, good)
-
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -100,7 +127,7 @@ def _normalize_geography(raw_geo: str | None, fallback: str = "National") -> str
     val = (raw_geo or "").strip().lower()
     if any(k in val for k in ("state", "bengal", "kolkata", "regional", "provincial", "maharashtra", "delhi", "tamil", "kerala", "karnataka", "odisha", "bihar", "assam", "punjab", "rajasthan", "gujarat", "uttar")):
         return "State"
-    if any(k in val for k in ("internat", "world", "global", "foreign", "usa", "uk", "china", "un", "asean", "gaza", "myanmar", "europe", "russia")):
+    if any(k in val for k in ("internat", "world", "global", "foreign", "usa", "uk", "china", "un", "asean", "gaza", "myanmar", "europe", "russia", "uae", "emirates")):
         return "International"
     if any(k in val for k in ("national", "india", "domestic", "central")):
         return "National"
@@ -108,50 +135,74 @@ def _normalize_geography(raw_geo: str | None, fallback: str = "National") -> str
     return fb_clean if fb_clean in ALLOWED_GEOGRAPHIES else "National"
 
 
-def _normalize_genre(raw_genre: str | None) -> str:
-    """Enforces classification strictly within the 12 approved DPR genres."""
+def _normalize_genre(raw_genre: str | None, allowed_names: list[str] | None = None) -> str:
+    """Enforces classification strictly within currently active approved DPR genres."""
+    valid_genres = allowed_names or APPROVED_GENRES
     cleaned = (raw_genre or "").strip()
-    for allowed in APPROVED_GENRES:
+    for allowed in valid_genres:
         if cleaned.lower() == allowed.lower():
             return allowed
 
     low = cleaned.lower()
+    mapped = "Politics & Governance"
     if any(w in low for w in ("educat", "school", "college", "university", "exam", "student", "ugc", "jee", "neet")):
-        return "Education"
-    if any(w in low for w in ("scien", "tech", "space", "isro", "ai", "cyber", "digital", "software")):
-        return "Science & Technology"
-    if any(w in low for w in ("busin", "econom", "market", "bank", "finance", "trade", "tax", "rbi", "gdp")):
-        return "Business & Economy"
-    if any(w in low for w in ("health", "medic", "hospital", "disease", "doctor", "who", "respiratory")):
-        return "Health"
-    if any(w in low for w in ("sport", "cricket", "football", "olympic", "match", "tournament")):
-        return "Sports"
-    if any(w in low for w in ("entertain", "film", "cinema", "movie", "music", "actor")):
-        return "Entertainment"
-    if any(w in low for w in ("environ", "climat", "weather", "cyclone", "flood", "rain", "pollution", "imd")):
-        return "Environment & Climate"
-    if any(w in low for w in ("crime", "law", "court", "police", "arrest", "supreme court", "high court", "blast")):
-        return "Crime & Law"
-    if any(w in low for w in ("agricult", "farm", "rural", "crop", "monsoon", "kisan")):
-        return "Agriculture & Rural Affairs"
-    if any(w in low for w in ("career", "employ", "job", "recruit", "hiring", "vacancy")):
-        return "Career & Employment"
-    if any(w in low for w in ("cultur", "literat", "book", "festival", "heritage", "art")):
-        return "Culture & Literature"
+        mapped = "Education"
+    elif any(w in low for w in ("scien", "tech", "space", "isro", "ai", "cyber", "digital", "software")):
+        mapped = "Science & Technology"
+    elif any(w in low for w in ("busin", "econom", "market", "bank", "finance", "trade", "tax", "rbi", "gdp")):
+        mapped = "Business & Economy"
+    elif any(w in low for w in ("health", "medic", "hospital", "disease", "doctor", "who", "respiratory")):
+        mapped = "Health"
+    elif any(w in low for w in ("sport", "cricket", "football", "olympic", "match", "tournament")):
+        mapped = "Sports"
+    elif any(w in low for w in ("entertain", "film", "cinema", "movie", "music", "actor")):
+        mapped = "Entertainment"
+    elif any(w in low for w in ("environ", "climat", "weather", "cyclone", "flood", "rain", "pollution", "imd")):
+        mapped = "Environment & Climate"
+    elif any(w in low for w in ("crime", "law", "court", "police", "arrest", "supreme court", "high court", "blast")):
+        mapped = "Crime & Law"
+    elif any(w in low for w in ("agricult", "farm", "rural", "crop", "monsoon", "kisan")):
+        mapped = "Agriculture & Rural Affairs"
+    elif any(w in low for w in ("career", "employ", "job", "recruit", "hiring", "vacancy")):
+        mapped = "Career & Employment"
+    elif any(w in low for w in ("cultur", "literat", "book", "festival", "heritage", "art")):
+        mapped = "Culture & Literature"
 
-    return "Politics & Governance"
+    if mapped in valid_genres:
+        return mapped
+    return valid_genres[0] if valid_genres else "Politics & Governance"
 
 
-def _normalize_secondary_genres(raw_list: list | None, primary: str) -> list[str]:
+def _normalize_secondary_genres(raw_list: list | None, primary: str, allowed_names: list[str]) -> list[str]:
     """Returns valid optional secondary DPR genres distinct from primary_genre."""
     if not isinstance(raw_list, list):
         return []
     result: list[str] = []
     for item in raw_list:
-        g = _normalize_genre(str(item))
+        g = _normalize_genre(str(item), allowed_names)
         if g != primary and g not in result:
             result.append(g)
     return result[:2]
+
+
+def _detect_sensitive_status(headline_en: str, in_brief_en: str, is_sensitive_flag: bool = False) -> str:
+    """
+    Applies DPR Sensitive News Safeguard:
+    Single-source unverified communal riot/lynching/sexual-violence graphic reports are routed to 'flagged_review'
+    for admin verification rather than auto-publishing unverified sensitive claims.
+    """
+    if is_sensitive_flag:
+        return "flagged_review"
+    combined = f"{headline_en} {in_brief_en}".lower()
+    high_risk_patterns = (
+        r"\bcommunal riot\b",
+        r"\bmob lynch",
+        r"\bsexual assault of minor\b",
+        r"\bminor raped\b",
+    )
+    if any(re.search(pat, combined) for pat in high_risk_patterns):
+        return "flagged_review"
+    return "published"
 
 
 def _has_bengali_script(text: str) -> bool:
@@ -273,85 +324,157 @@ def cluster_items(items: list[dict], max_clusters: int = 20) -> list[list[dict]]
     return selected[:max_clusters]
 
 
-def _build_synthesis_prompt(cluster: list[dict]) -> str:
+def _build_synthesis_prompt(cluster: list[dict], valid_genres: list[str]) -> str:
     has_bn_source = any(it["language"] == "bn" for it in cluster)
+    acronyms, proper_nouns = _extract_named_entities(cluster)
     source_notes = "\n".join(
         f"- [{it['source_name']} ({it['language']})]: {it['title']} — {it['snippet']}"
         for it in cluster
     )
-    genres_list = json.dumps(APPROVED_GENRES)
+    genres_list = json.dumps(valid_genres)
     bn_guidance = (
-        "Original Bengali newspaper notes are provided above—synthesize directly from the authentic Bengali reporting rather than doing literal word-for-word translation from English."
+        "Original Bengali newspaper notes are provided above—synthesize directly from the authentic Bengali reporting rather than translating from English."
         if has_bn_source
-        else "Write natural, idiomatic Kolkata/West Bengal journalistic Bengali (চলিত বাংলা সংবাদশৈলী), NOT literal English-to-Bengali or Hindi-to-Bengali calques."
+        else "Write natural, idiomatic West Bengal / Kolkata standard Bengali (পশ্চিমবঙ্গ বাংলা আকাদেমি ও কলকাতার সংবাদপত্রের মান্য চলিত রীতি), NOT Bangladeshi orthography and NOT literal English/Hindi calques."
     )
+    entity_lock = ""
+    if acronyms or proper_nouns:
+        entity_lock = (
+            f"Detected Source Acronyms: {acronyms} (transliterate letter-by-letter accurately into Bengali). "
+            f"Detected Proper Nouns: {proper_nouns} (NEVER translate proper nouns/companies/places by dictionary meaning; transliterate using standard Indian Bengali spelling)."
+        )
+
     return (
-        "You are a senior copy editor at a major Kolkata Bengali daily (like Anandabazar Patrika). Synthesize the following news notes "
+        "You are a senior copy editor at a major Kolkata Bengali daily. Synthesize the following news notes "
         "into an original, objective, consolidated abridged report in BOTH English and standard Bengali (বাংলা লিপি).\n"
-        "CRITICAL BENGALI EDITORIAL RULES:\n"
+        "CRITICAL EDITORIAL PRINCIPLES:\n"
         f"1. {bn_guidance}\n"
-        "2. NEVER use Hindi-calque age words like 'বছরী' or 'বছরীয়'. Always write '৬ বছর বয়সী', '৮ বছর বয়সী' (e.g., '৬ বছর বয়সী ছাত্রী').\n"
-        "3. Use authentic Kolkata Bengali spellings for Indian place names (e.g., 'পাঁচকুলা' NOT 'পঞ্চকুলা', 'নয়াদিল্লি', 'বেঙ্গালুরু', 'মুম্বই', 'ওড়িশা', 'চণ্ডীগড়').\n"
-        "4. Preserve exact subject-object meaning in Bengali: e.g., write 'কমিটির সদস্যদের নাম ঘোষণা' (announcement of committee members' names), NEVER 'কমিটির সদস্যদের ঘোষণা'.\n"
-        "5. Attach Bengali case suffixes (-এ, -এর, -কে) directly to the word before any closing quotation mark (e.g., ‘এনকাউন্টারে’, NEVER ‘এনকাউন্টার’ে).\n"
-        "6. Use standard Bengali journalistic terms (e.g., 'নির্বাচনী ইস্তাহার' instead of 'ম্যানিফেস্টা'). NEVER use Hindi (Devanagari) or Punjabi (Gurmukhi) script.\n"
-        "7. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"].\n"
-        "8. If 'geography' is \"State\", set 'state_name' to the Indian state name (e.g., \"West Bengal\", \"Haryana\", \"Punjab\"); otherwise set 'state_name' to null.\n"
-        f"9. 'primary_genre' MUST be strictly one of the 12 approved genres: {genres_list}.\n"
-        "10. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT copy sentences verbatim.\n\n"
+        f"2. {entity_lock}\n"
+        "3. Use West Bengal / Kolkata Bengali standard vocabulary and place orthography (Paschimbanga Bangla Akademi standard), never Hindi morphological calques (e.g., use 'বছর বয়সী', never 'বছরী'/'বছরীয়') and never Bangladeshi regional spellings.\n"
+        "4. Preserve exact subject-object grammatical agency (who performed the action vs. who was named or affected).\n"
+        "5. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"].\n"
+        "6. If 'geography' is \"State\", set 'state_name' to the Indian state name; otherwise set 'state_name' to null.\n"
+        f"7. 'primary_genre' MUST be strictly one of the currently approved genres: {genres_list}.\n"
+        "8. Set 'is_sensitive' to true ONLY if the story involves unverified communal violence, graphic abuse of minors, or sensitive public-order rumors requiring editorial review; otherwise false.\n"
+        "9. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences).\n\n"
         "Respond ONLY with a raw JSON object containing EXACTLY these keys:\n"
         '- "headline_en": Concise, factual English headline (max 15 words).\n'
         '- "headline_bn": Natural, idiomatic Bengali headline in Bengali Unicode script.\n'
-        '- "primary_genre": Exact string from the 12 approved genres above.\n'
-        '- "secondary_genres": Array of 0 to 2 additional genres from the 12 approved genres.\n'
+        '- "primary_genre": Exact string from the currently approved genres above.\n'
+        '- "secondary_genres": Array of 0 to 2 additional genres from the approved genres.\n'
         '- "geography": Exact string from ["State", "National", "International"].\n'
         '- "state_name": Indian state name if geography is "State", else null.\n'
-        '- "in_brief_en": Unified 3-5 sentence objective English summary covering what happened and key context.\n'
+        '- "is_sensitive": Boolean (true or false).\n'
+        '- "in_brief_en": Unified 3-5 sentence objective English summary.\n'
         '- "in_brief_bn": Unified 3-5 sentence objective Bengali summary in standard Kolkata newspaper Bengali.\n\n'
         f"Source Notes:\n{source_notes}"
     )
+
+
+def _automated_bengali_copy_edit(
+    g_client,
+    cluster: list[dict],
+    headline_en: str,
+    headline_bn: str,
+    in_brief_en: str,
+    in_brief_bn: str,
+) -> tuple[str, str]:
+    """Second-pass autonomous Bengali desk copy-editor audit using the 120B model."""
+    acronyms, proper_nouns = _extract_named_entities(cluster)
+    source_notes = "\n".join(
+        f"- [{it['source_name']} ({it['language']})]: {it['title']}"
+        for it in cluster
+    )
+    audit_prompt = (
+        "You are the Chief Bengali Sub-Editor in Kolkata (Paschimbanga Bangla Akademi standard) auditing a draft before publication.\n"
+        "Verify the Bengali draft against the Original Source Headlines and Detected Entities below, and fix ANY defect in:\n"
+        f"1. Proper Noun & Acronym Integrity — Acronyms: {acronyms}, Proper Nouns: {proper_nouns}. "
+        "Ensure every acronym is spelled phonetically right and NO proper noun/brand/place is mistranslated by literal word meaning.\n"
+        "2. West Bengal Press Standard — Use Kolkata newspaper orthography and vocabulary (not Bangladeshi orthography and not Hindi calques like 'বছরী'/'বছরীয়').\n"
+        "3. Grammatical Agency — Verify subject vs. object meaning matches the English source accurately.\n\n"
+        f"Original Source Headlines:\n{source_notes}\n\n"
+        f"English Headline: {headline_en}\n"
+        f"English Summary: {in_brief_en}\n"
+        f"Draft Bengali Headline: {headline_bn}\n"
+        f"Draft Bengali Summary: {in_brief_bn}\n\n"
+        "Respond ONLY with a raw JSON object with keys \"headline_bn\" and \"in_brief_bn\" containing the final publication-ready Bengali copy."
+    )
+    try:
+        resp = g_client.chat.completions.create(
+            model=PRIMARY_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are the Chief Bengali Sub-Editor in Kolkata. Return strictly valid JSON with publication-ready West Bengal standard Bengali.",
+                },
+                {"role": "user", "content": audit_prompt},
+            ],
+            reasoning_effort="low",
+            temperature=0.1,
+            max_tokens=2048,
+        )
+        edited = _extract_json_object(resp.choices[0].message.content or "")
+        new_h_bn = (edited.get("headline_bn") or headline_bn).strip()
+        new_b_bn = (edited.get("in_brief_bn") or in_brief_bn).strip()
+        if _has_bengali_script(new_h_bn) and _has_bengali_script(new_b_bn):
+            return new_h_bn, new_b_bn
+    except Exception:
+        pass
+    return headline_bn, in_brief_bn
 
 
 def synthesize_cluster(
     cluster: list[dict],
     gemini_api_key: str | None = None,
     groq_api_key: str | None = None,
+    valid_genres: list[str] | None = None,
 ) -> tuple[dict, str | None]:
-    """
-    Generates an original consolidated abridged summary in English and Bengali.
-    Aligns strictly with public.stories columns and DPR constraints.
-    """
+    """Generates an original consolidated abridged summary in English and Bengali."""
+    active_genres = valid_genres or APPROVED_GENRES
     primary = cluster[0]
     source_names = sorted({item["source_name"] for item in cluster})
     fallback_geo = _normalize_geography(primary.get("geography"), "National")
-    prompt = _build_synthesis_prompt(cluster)
+    prompt = _build_synthesis_prompt(cluster, active_genres)
     llm_error = None
 
-    def _finalize_parsed(parsed: dict) -> dict:
+    def _finalize_parsed(parsed: dict, g_client=None) -> dict:
         geo = _normalize_geography(parsed.get("geography"), fallback_geo)
         if geo not in ALLOWED_GEOGRAPHIES:
             geo = "National"
-        genre = _normalize_genre(parsed.get("primary_genre"))
-        sec_genres = _normalize_secondary_genres(parsed.get("secondary_genres"), genre)
+        genre = _normalize_genre(parsed.get("primary_genre"), active_genres)
+        sec_genres = _normalize_secondary_genres(parsed.get("secondary_genres"), genre, active_genres)
         state_val = (parsed.get("state_name") or "").strip() if geo == "State" else None
         if geo == "State" and not state_val:
             state_val = "West Bengal"
 
         headline_en = (parsed.get("headline_en") or primary["title"]).strip()
-        headline_bn = _polish_bengali_grammar((parsed.get("headline_bn") or "").strip())
+        headline_bn = (parsed.get("headline_bn") or "").strip()
         in_brief_en = (parsed.get("in_brief_en") or parsed.get("what_happened_en") or primary["snippet"] or primary["title"]).strip()
-        in_brief_bn = _polish_bengali_grammar((parsed.get("in_brief_bn") or parsed.get("what_happened_bn") or "").strip())
+        in_brief_bn = (parsed.get("in_brief_bn") or parsed.get("what_happened_bn") or "").strip()
+
+        if g_client is not None and _has_bengali_script(headline_bn):
+            headline_bn, in_brief_bn = _automated_bengali_copy_edit(
+                g_client=g_client,
+                cluster=cluster,
+                headline_en=headline_en,
+                headline_bn=headline_bn,
+                in_brief_en=in_brief_en,
+                in_brief_bn=in_brief_bn,
+            )
+
+        headline_bn = _apply_universal_bengali_morphology(headline_bn)
+        in_brief_bn = _apply_universal_bengali_morphology(in_brief_bn)
 
         if not _has_bengali_script(headline_bn):
-            if primary["language"] == "bn":
-                headline_bn = primary["title"]
-            else:
-                headline_bn = f"সংবাদ শিরোনাম ({', '.join(source_names)})"
+            headline_bn = primary["title"] if primary["language"] == "bn" else f"সংবাদ শিরোনাম ({', '.join(source_names)})"
         if not _has_bengali_script(in_brief_bn):
-            if primary["language"] == "bn":
-                in_brief_bn = primary["snippet"] or primary["title"]
-            else:
-                in_brief_bn = f"সূত্র: {', '.join(source_names)} — {headline_en}"
+            in_brief_bn = (primary["snippet"] or primary["title"]) if primary["language"] == "bn" else f"সূত্র: {', '.join(source_names)} — {headline_en}"
+
+        story_status = _detect_sensitive_status(
+            headline_en,
+            in_brief_en,
+            bool(parsed.get("is_sensitive", False)),
+        )
 
         return {
             "headline_en": headline_en,
@@ -360,6 +483,7 @@ def synthesize_cluster(
             "secondary_genres": sec_genres,
             "geography": geo,
             "state_name": state_val,
+            "status": story_status,
             "summary_en": {
                 "in_brief": in_brief_en,
                 "sources": source_names,
@@ -370,10 +494,10 @@ def synthesize_cluster(
             },
         }
 
-    # 1. Try Groq reasoning models
+    # 1. Try Groq 120B (primary) then 20B (backup)
     if groq_api_key and Groq is not None:
         g_client = Groq(api_key=groq_api_key.strip())
-        for model_id in GROQ_MODELS:
+        for model_id in (PRIMARY_MODEL, BACKUP_MODEL):
             try:
                 chat_resp = g_client.chat.completions.create(
                     model=model_id,
@@ -381,9 +505,8 @@ def synthesize_cluster(
                         {
                             "role": "system",
                             "content": (
-                                "You are a senior copy editor at a Kolkata Bengali newspaper. Output valid JSON only. "
-                                "Write natural, idiomatic Kolkata Bengali (never Hindi calques like 'বছরী' or 'বছরীয়'; always use 'বছর বয়সী') "
-                                "and standard Bengali place spellings."
+                                "You are a senior copy editor at a Kolkata Bengali newspaper following Paschimbanga Bangla Akademi standards. "
+                                "Output valid JSON only. Transliterate proper nouns and acronyms accurately; never translate them by literal word meaning."
                             ),
                         },
                         {"role": "user", "content": prompt},
@@ -394,7 +517,7 @@ def synthesize_cluster(
                 )
                 content = chat_resp.choices[0].message.content or ""
                 parsed = _extract_json_object(content)
-                return _finalize_parsed(parsed), None
+                return _finalize_parsed(parsed, g_client=g_client), None
             except Exception as g_exc:
                 llm_error = f"Groq ({model_id}) error: {g_exc}"
 
@@ -420,10 +543,11 @@ def synthesize_cluster(
         {
             "headline_en": primary["title"],
             "headline_bn": bn_fallback_title,
-            "primary_genre": _normalize_genre(primary["title"]),
+            "primary_genre": _normalize_genre(primary["title"], active_genres),
             "secondary_genres": [],
             "geography": safe_geo,
             "state_name": "West Bengal" if safe_geo == "State" else None,
+            "status": _detect_sensitive_status(primary["title"], combined_brief, False),
             "summary_en": {
                 "in_brief": f"{combined_brief} (Corroborated across {', '.join(source_names)}.)",
                 "sources": source_names,
@@ -441,14 +565,18 @@ def run_ingestion_cycle(
     supabase,
     gemini_api_key: str | None = None,
     groq_api_key: str | None = None,
+    edition_slot: str = "live",
 ) -> dict:
-    """Executes one full collect -> deduplicate -> cluster -> synthesize -> publish cycle."""
+    """Executes one full collect -> deduplicate -> cluster -> synthesize -> publish cycle for 'live', 'morning', or 'evening'."""
+    slot = edition_slot if edition_slot in ALLOWED_EDITION_SLOTS else "live"
     raw_items = fetch_rss_items(max_per_feed=8)
     fetched_count = len(raw_items)
     if not raw_items:
         return {"fetched": 0, "published": 0, "message": "No RSS entries reachable right now."}
 
     bn_fetched = sum(1 for it in raw_items if it["language"] == "bn")
+    active_genre_rows = fetch_approved_genres(supabase)
+    valid_genre_names = [g["name_en"] for g in active_genre_rows]
     existing_urls, existing_headlines = _get_existing_urls_and_headlines(supabase)
 
     fresh_items = [it for it in raw_items if it["url"] not in existing_urls]
@@ -463,6 +591,7 @@ def run_ingestion_cycle(
     clusters = cluster_items(fresh_items, max_clusters=20)
     published_count = 0
     bn_published = 0
+    flagged_count = 0
     skipped_dups = 0
     errors: list[str] = []
     now_ist = datetime.now(IST)
@@ -479,6 +608,7 @@ def run_ingestion_cycle(
             cluster,
             gemini_api_key=gemini_api_key,
             groq_api_key=groq_api_key,
+            valid_genres=valid_genre_names,
         )
         if llm_err and llm_err not in errors:
             errors.append(llm_err)
@@ -492,6 +622,7 @@ def run_ingestion_cycle(
         if safe_geography not in ALLOWED_GEOGRAPHIES:
             safe_geography = "National"
 
+        story_status = synthesized.get("status", "published")
         story_payload = {
             "headline_en": synthesized["headline_en"],
             "headline_bn": synthesized["headline_bn"],
@@ -499,10 +630,10 @@ def run_ingestion_cycle(
             "secondary_genres": synthesized["secondary_genres"],
             "geography": safe_geography,
             "state_name": synthesized["state_name"] if safe_geography == "State" else None,
-            "edition_slot": "live",
+            "edition_slot": slot,
             "summary_en": synthesized["summary_en"],
             "summary_bn": synthesized["summary_bn"],
-            "status": "published",
+            "status": story_status,
             "published_at": now_ist_iso,
             "expires_at": expires_ist_iso,
         }
@@ -511,6 +642,8 @@ def run_ingestion_cycle(
             if insert_res.data:
                 story_id = insert_res.data[0]["id"]
                 existing_headlines.add(norm_synth)
+                if story_status == "flagged_review":
+                    flagged_count += 1
                 if any(it["language"] == "bn" for it in cluster):
                     bn_published += 1
                 refs = [
@@ -536,11 +669,12 @@ def run_ingestion_cycle(
     clusters.clear()
 
     diag_suffix = f" (Diagnostic: {errors[0]})" if errors else ""
+    flag_note = f", {flagged_count} held for sensitive review" if flagged_count else ""
     return {
         "fetched": fetched_count,
         "published": published_count,
         "message": (
-            f"Fetched {fetched_count} RSS items ({bn_fetched} Bengali), skipped {skipped_dups} duplicates, "
-            f"and published {published_count} consolidated briefings ({bn_published} citing Bengali dailies).{diag_suffix}"
+            f"[{slot.upper()} EDITION] Fetched {fetched_count} RSS items ({bn_fetched} Bengali), skipped {skipped_dups} duplicates, "
+            f"and processed {published_count} consolidated briefings ({bn_published} citing Bengali dailies{flag_note}).{diag_suffix}"
         ),
     }
