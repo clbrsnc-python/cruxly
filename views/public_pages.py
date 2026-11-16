@@ -171,7 +171,7 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
     left_col, right_col = st.columns([1.0, 1.32], gap="large")
 
     # ---------------------------------------------------------
-    # LEFT COLUMN: UNIFIED BURGUNDY CARD (LOGO + 5 BOXES + GOOGLE OAUTH + CREDIT)
+    # LEFT COLUMN: ENLARGED LOGO + 5 BOXES + GOOGLE OAUTH + CREDIT + POLICY LINKS
     # ---------------------------------------------------------
     with left_col:
         with st.container(border=True):
@@ -196,12 +196,21 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
                 <div class="landing-credit">
                     Designed &amp; Crafted by: <span>Dr Joydip Chandra</span> | &copy; 2026 Cruxly
                 </div>
+                <div class="landing-policy-links">
+                    <a href="?page=charter">Editorial Charter</a>
+                    <span>&bull;</span>
+                    <a href="?page=privacy">Privacy Policy</a>
+                    <span>&bull;</span>
+                    <a href="?page=terms">Copyright &amp; Terms</a>
+                    <span>&bull;</span>
+                    <a href="?page=guidelines">Reader Guidelines</a>
+                </div>
                 """,
                 unsafe_allow_html=True,
             )
 
     # ---------------------------------------------------------
-    # RIGHT COLUMN: COMPACT PRINT-STYLE DIGITAL BROADSHEET
+    # RIGHT COLUMN: PURE PRINT-STYLE DIGITAL BROADSHEET
     # ---------------------------------------------------------
     with right_col:
         previews = _select_front_page_stories(supabase)
@@ -220,7 +229,7 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
             ) if isinstance(sum_obj, dict) else str(sum_obj)
             clean_brief = _clean_preview_summary(raw_brief)
 
-            max_len = 165 if is_lead else 115
+            max_len = 220 if is_lead else 175
             brief_text = html.escape(clean_brief[:max_len] + ("..." if len(clean_brief) > max_len else ""))
 
             if is_lead:
@@ -260,26 +269,15 @@ def render_public_landing(supabase: Client, logo_b64: str) -> None:
         st.markdown(
             f"""
             <div class="newsprint-sheet">
-                <div>
-                    <div class="newsprint-masthead">
-                        <div class="newsprint-edition-bar">
-                            <span>DIGITAL BROADSHEET</span>
-                            <span>{today_ist}</span>
-                        </div>
-                        <div class="newsprint-paper-title">THE CRUXLY DISPATCH</div>
-                        <div class="newsprint-paper-sub">Front-Page Briefings &bull; Sign in for Full Bilingual Reports &amp; Source Links</div>
+                <div class="newsprint-masthead">
+                    <div class="newsprint-edition-bar">
+                        <span>DIGITAL BROADSHEET</span>
+                        <span>{today_ist}</span>
                     </div>
-                    {front_body_html}
+                    <div class="newsprint-paper-title">THE CRUXLY DISPATCH</div>
+                    <div class="newsprint-paper-sub">Front-Page Briefings &bull; Sign in for Full Bilingual Reports &amp; Source Links</div>
                 </div>
-                <div class="newsprint-bottom-links">
-                    <a href="?page=charter">Editorial Charter</a>
-                    <span>&bull;</span>
-                    <a href="?page=privacy">Privacy Policy</a>
-                    <span>&bull;</span>
-                    <a href="?page=terms">Copyright &amp; Terms</a>
-                    <span>&bull;</span>
-                    <a href="?page=guidelines">Reader Guidelines</a>
-                </div>
+                {front_body_html}
             </div>
             """,
             unsafe_allow_html=True,
