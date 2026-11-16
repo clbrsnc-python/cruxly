@@ -34,7 +34,7 @@ APPROVED_GENRES = [
     "Culture & Literature",
 ]
 
-ALLOWED_GEOGRAPHIES = {"State", "National", "International"}
+ALLOWED_GEOGRAPHIES = ("State", "National", "International")
 
 
 def _clean_text(raw: str) -> str:
@@ -55,9 +55,9 @@ def _extract_json_object(raw_text: str) -> dict:
 def _normalize_geography(raw_geo: str | None, fallback: str = "National") -> str:
     """Maps geography strictly onto ['State', 'National', 'International'] to satisfy stories_geography_check."""
     val = (raw_geo or "").strip().lower()
-    if any(k in val for k in ("state", "bengal", "kolkata", "regional", "provincial")):
+    if any(k in val for k in ("state", "bengal", "kolkata", "regional", "provincial", "maharashtra", "delhi", "tamil", "kerala", "karnataka", "odisha", "bihar", "assam", "punjab", "rajasthan", "gujarat", "uttar")):
         return "State"
-    if any(k in val for k in ("internat", "world", "global", "foreign", "usa", "uk", "china", "un")):
+    if any(k in val for k in ("internat", "world", "global", "foreign", "usa", "uk", "china", "un", "asean", "gaza", "myanmar", "europe", "russia")):
         return "International"
     if any(k in val for k in ("national", "india", "domestic", "central")):
         return "National"
@@ -73,23 +73,21 @@ def _normalize_genre(raw_genre: str | None) -> str:
             return allowed
 
     low = cleaned.lower()
-    if any(w in low for w in ("politic", "govern", "elect", "parliament", "minister", "policy")):
-        return "Politics & Governance"
-    if any(w in low for w in ("educat", "school", "college", "university", "exam", "student")):
+    if any(w in low for w in ("educat", "school", "college", "university", "exam", "student", "ugc", "jee", "neet")):
         return "Education"
-    if any(w in low for w in ("scien", "tech", "space", "isro", "ai", "cyber", "digital")):
+    if any(w in low for w in ("scien", "tech", "space", "isro", "ai", "cyber", "digital", "software")):
         return "Science & Technology"
-    if any(w in low for w in ("busin", "econom", "market", "bank", "finance", "trade", "tax")):
+    if any(w in low for w in ("busin", "econom", "market", "bank", "finance", "trade", "tax", "rbi", "gdp")):
         return "Business & Economy"
-    if any(w in low for w in ("health", "medic", "hospital", "disease", "doctor", "who")):
+    if any(w in low for w in ("health", "medic", "hospital", "disease", "doctor", "who", "respiratory")):
         return "Health"
     if any(w in low for w in ("sport", "cricket", "football", "olympic", "match", "tournament")):
         return "Sports"
     if any(w in low for w in ("entertain", "film", "cinema", "movie", "music", "actor")):
         return "Entertainment"
-    if any(w in low for w in ("environ", "climat", "weather", "cyclone", "flood", "rain", "pollution")):
+    if any(w in low for w in ("environ", "climat", "weather", "cyclone", "flood", "rain", "pollution", "imd")):
         return "Environment & Climate"
-    if any(w in low for w in ("crime", "law", "court", "police", "arrest", "supreme court", "high court")):
+    if any(w in low for w in ("crime", "law", "court", "police", "arrest", "supreme court", "high court", "blast")):
         return "Crime & Law"
     if any(w in low for w in ("agricult", "farm", "rural", "crop", "monsoon", "kisan")):
         return "Agriculture & Rural Affairs"
@@ -99,6 +97,18 @@ def _normalize_genre(raw_genre: str | None) -> str:
         return "Culture & Literature"
 
     return "Politics & Governance"
+
+
+def _normalize_secondary_genres(raw_list: list | None, primary: str) -> list[str]:
+    """Returns valid optional secondary DPR genres distinct from primary_genre."""
+    if not isinstance(raw_list, list):
+        return []
+    result: list[str] = []
+    for item in raw_list:
+        g = _normalize_genre(str(item))
+        if g != primary and g not in result:
+            result.append(g)
+    return result[:2]
 
 
 def _has_bengali_script(text: str) -> bool:
@@ -216,13 +226,16 @@ def _build_synthesis_prompt(cluster: list[dict]) -> str:
         "1. 'headline_bn' and 'in_brief_bn' MUST be written strictly in Bengali Unicode script (বাংলা বর্ণমালা). "
         "NEVER use Hindi (Devanagari) or Punjabi (Gurmukhi) script.\n"
         "2. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"]. Use \"State\" for Indian state-level news, \"National\" for India-wide news, and \"International\" for global/foreign news.\n"
-        f"3. 'primary_genre' MUST be strictly one of the 12 approved genres: {genres_list}.\n"
-        "4. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT copy sentences verbatim.\n\n"
-        "Respond ONLY with a raw JSON object containing EXACTLY these 6 keys:\n"
+        "3. If 'geography' is \"State\", set 'state_name' to the Indian state name (e.g., \"West Bengal\", \"Maharashtra\", \"Rajasthan\"); otherwise set 'state_name' to null.\n"
+        f"4. 'primary_genre' MUST be strictly one of the 12 approved genres: {genres_list}.\n"
+        "5. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT copy sentences verbatim.\n\n"
+        "Respond ONLY with a raw JSON object containing EXACTLY these keys:\n"
         '- "headline_en": Concise, factual English headline (max 15 words).\n'
         '- "headline_bn": Natural, accurate Bengali headline in Bengali Unicode script.\n'
         '- "primary_genre": Exact string from the 12 approved genres above.\n'
+        '- "secondary_genres": Array of 0 to 2 additional genres from the 12 approved genres.\n'
         '- "geography": Exact string from ["State", "National", "International"].\n'
+        '- "state_name": Indian state name if geography is "State", else null.\n'
         '- "in_brief_en": Unified 3-5 sentence objective English summary covering what happened and key context.\n'
         '- "in_brief_bn": Unified 3-5 sentence objective Bengali summary in Bengali Unicode script only.\n\n'
         f"Source Notes:\n{source_notes}"
@@ -236,8 +249,7 @@ def synthesize_cluster(
 ) -> tuple[dict, str | None]:
     """
     Generates an original consolidated abridged summary in English and Bengali.
-    Enforces strict DPR geography ['State', 'National', 'International'], 12 approved genres,
-    Bengali headlines, and Bengali Unicode script validation.
+    Aligns strictly with public.stories columns and DPR constraints.
     """
     primary = cluster[0]
     source_names = sorted({item["source_name"] for item in cluster})
@@ -247,7 +259,14 @@ def synthesize_cluster(
 
     def _finalize_parsed(parsed: dict) -> dict:
         geo = _normalize_geography(parsed.get("geography"), fallback_geo)
+        if geo not in ALLOWED_GEOGRAPHIES:
+            geo = "National"
         genre = _normalize_genre(parsed.get("primary_genre"))
+        sec_genres = _normalize_secondary_genres(parsed.get("secondary_genres"), genre)
+        state_val = (parsed.get("state_name") or "").strip() if geo == "State" else None
+        if geo == "State" and not state_val:
+            state_val = "West Bengal"
+
         headline_en = (parsed.get("headline_en") or primary["title"]).strip()
         headline_bn = (parsed.get("headline_bn") or "").strip()
         in_brief_en = (parsed.get("in_brief_en") or parsed.get("what_happened_en") or primary["snippet"] or primary["title"]).strip()
@@ -260,8 +279,11 @@ def synthesize_cluster(
 
         return {
             "headline_en": headline_en,
+            "headline_bn": headline_bn,
             "primary_genre": genre,
+            "secondary_genres": sec_genres,
             "geography": geo,
+            "state_name": state_val,
             "summary_en": {
                 "in_brief": in_brief_en,
                 "sources": source_names,
@@ -314,11 +336,15 @@ def synthesize_cluster(
 
     # 3. Fallback when LLM is unavailable or errored
     combined_brief = primary["snippet"] or primary["title"]
+    safe_geo = fallback_geo if fallback_geo in ALLOWED_GEOGRAPHIES else "National"
     return (
         {
             "headline_en": primary["title"],
+            "headline_bn": f"সংবাদ শিরোনাম ({', '.join(source_names)})",
             "primary_genre": _normalize_genre(primary["title"]),
-            "geography": fallback_geo,
+            "secondary_genres": [],
+            "geography": safe_geo,
+            "state_name": "West Bengal" if safe_geo == "State" else None,
             "summary_en": {
                 "in_brief": f"{combined_brief} (Corroborated across {', '.join(source_names)}.)",
                 "sources": source_names,
@@ -358,7 +384,9 @@ def run_ingestion_cycle(
     published_count = 0
     skipped_dups = 0
     errors: list[str] = []
-    now_ist_iso = datetime.now(IST).isoformat()
+    now_ist = datetime.now(IST)
+    now_ist_iso = now_ist.isoformat()
+    expires_ist_iso = (now_ist + timedelta(days=90)).isoformat()
 
     for cluster in clusters:
         norm_primary = re.sub(r"[^a-z0-9]+", " ", cluster[0]["title"].lower()).strip()
@@ -379,14 +407,24 @@ def run_ingestion_cycle(
             skipped_dups += 1
             continue
 
+        # Hard insert-level guard guaranteeing stories_geography_check compliance
+        safe_geography = synthesized["geography"]
+        if safe_geography not in ALLOWED_GEOGRAPHIES:
+            safe_geography = "National"
+
         story_payload = {
             "headline_en": synthesized["headline_en"],
+            "headline_bn": synthesized["headline_bn"],
             "primary_genre": synthesized["primary_genre"],
-            "geography": synthesized["geography"],
+            "secondary_genres": synthesized["secondary_genres"],
+            "geography": safe_geography,
+            "state_name": synthesized["state_name"] if safe_geography == "State" else None,
+            "edition_slot": "live",
             "summary_en": synthesized["summary_en"],
             "summary_bn": synthesized["summary_bn"],
             "status": "published",
             "published_at": now_ist_iso,
+            "expires_at": expires_ist_iso,
         }
         try:
             insert_res = supabase.table("stories").insert(story_payload).execute()
