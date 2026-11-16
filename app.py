@@ -30,7 +30,7 @@ logo_b64 = get_base64_image("cruxly_logo.jpg")
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+Bengali:wght@400;600;700&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Noto+Serif+Bengali:wght@400;600;700&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&display=swap');
 
     /* Global Editorial Typography */
     html, body, [class*="css"], .stApp, button, input, select, textarea, p, h1, h2, h3, h4, h5, h6, span, div, a {
@@ -65,51 +65,56 @@ st.markdown(
         background-color: rgba(255, 255, 255, 0.03) !important;
         border: 1.5px solid rgba(212, 175, 55, 0.55) !important;
         border-radius: 14px !important;
-        padding: 18px 20px 14px 20px !important;
+        padding: 20px 22px 18px 22px !important;
     }
     .brand-top-block {
         text-align: center;
     }
     .landing-logo-img {
-        width: 180px;
-        height: 180px;
+        width: 235px;
+        height: 235px;
         object-fit: cover;
-        border-radius: 14px;
+        border-radius: 16px;
         border: 2.5px solid #D4AF37;
-        margin: 0 auto 14px auto;
+        margin: 0 auto 16px auto;
         display: block;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
     }
     .landing-feature-pill {
         background-color: rgba(255, 255, 255, 0.08);
         border: 1px solid #D4AF37;
         border-radius: 8px;
-        padding: 7px 13px;
-        margin: 0 auto 7px auto;
+        padding: 7px 14px;
+        margin: 0 auto 8px auto;
         width: 100%;
-        font-size: 0.9rem;
+        font-size: 0.91rem;
         font-weight: 600;
         color: #FFFFFF !important;
         text-align: left;
         box-sizing: border-box;
     }
 
-    /* Prominent Full-Width Multicolor Google Sign-In Button */
+    /* Bold Google Sign-In Button with Logo Background Navy (#0B2545) & Multicolor Google "G" */
     div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] {
-        margin: 10px 0 6px 0 !important;
+        margin: 12px 0 8px 0 !important;
         width: 100% !important;
+    }
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a,
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a p,
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a span {
+        background-color: #FFFFFF !important;
+        color: #0B2545 !important;
+        font-family: "Inter", "Times New Roman", sans-serif !important;
+        font-size: 1.06rem !important;
+        font-weight: 800 !important;
+        letter-spacing: 0.01em !important;
     }
     div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a {
         width: 100% !important;
-        min-height: 46px !important;
-        background-color: #FFFFFF !important;
-        color: #1F1F1F !important;
-        border: 2px solid #D4AF37 !important;
+        min-height: 48px !important;
+        border: 2.5px solid #D4AF37 !important;
         border-radius: 8px !important;
-        padding: 9px 18px !important;
-        font-family: "Inter", "Times New Roman", sans-serif !important;
-        font-size: 1.02rem !important;
-        font-weight: 700 !important;
+        padding: 10px 18px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -120,24 +125,26 @@ st.markdown(
     div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a::before {
         content: "";
         display: inline-block;
-        width: 21px;
-        height: 21px;
+        width: 22px;
+        height: 22px;
         flex-shrink: 0;
         background-repeat: no-repeat;
         background-size: contain;
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='%23EA4335' d='M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z'/%3E%3Cpath fill='%234285F4' d='M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z'/%3E%3Cpath fill='%23FBBC05' d='M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z'/%3E%3Cpath fill='%2334A853' d='M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z'/%3E%3C/svg%3E");
     }
-    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a:hover {
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a:hover,
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a:hover p,
+    div[data-testid="stColumn"]:first-child div[data-testid="stLinkButton"] > a:hover span {
         background-color: #FFFDF7 !important;
-        color: #1F1F1F !important;
+        color: #0B2545 !important;
         border-color: #E5C158 !important;
     }
 
     .landing-credit {
         border-top: 1px solid rgba(212, 175, 55, 0.55);
-        padding-top: 9px;
-        margin-top: 6px;
-        font-size: 0.85rem;
+        padding-top: 10px;
+        margin-top: 8px;
+        font-size: 0.86rem;
         color: #FBF9F4 !important;
         text-align: center;
     }
@@ -146,42 +153,65 @@ st.markdown(
         font-weight: bold;
     }
 
+    /* Policy Links Below Attribution with 2-Line Gap */
+    .landing-policy-links {
+        margin-top: 28px;
+        padding-top: 10px;
+        border-top: 1px dashed rgba(212, 175, 55, 0.35);
+        text-align: center;
+        font-size: 0.80rem;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 7px;
+        color: #E5D7C1;
+    }
+    .landing-policy-links a {
+        color: #E5C158 !important;
+        font-weight: 600;
+        text-decoration: underline;
+    }
+    .landing-policy-links a:hover {
+        color: #FFFFFF !important;
+    }
+
     /* ---------------------------------------------------------
-       RIGHT COLUMN: CREAM NEWSPRINT BROADSHEET (18% SMALLER FONTS)
+       RIGHT COLUMN: PURE PRINT-STYLE CREAM NEWSPRINT BROADSHEET
        --------------------------------------------------------- */
     .newsprint-sheet {
         background-color: #FBF9F4 !important;
         border: 2px solid #D4AF37;
         border-radius: 14px;
-        padding: 14px 18px;
+        padding: 16px 20px;
         color: #1D120A !important;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+        height: 100%;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
+        justify-content: flex-start;
         box-sizing: border-box;
     }
     .newsprint-masthead {
         border-bottom: 2.5px double #1D120A;
-        padding-bottom: 5px;
-        margin-bottom: 8px;
+        padding-bottom: 6px;
+        margin-bottom: 10px;
         text-align: center;
     }
     .newsprint-edition-bar {
         display: flex;
         justify-content: space-between;
-        font-size: 0.60rem;
+        font-size: 0.62rem;
         font-weight: bold;
         letter-spacing: 0.06em;
         text-transform: uppercase;
         color: #5C4938;
         border-bottom: 1px solid #C8BFA8;
-        padding-bottom: 2px;
+        padding-bottom: 3px;
         margin-bottom: 4px;
     }
     .newsprint-paper-title {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 1.22rem;
+        font-size: 1.28rem;
         font-weight: 800;
         letter-spacing: 0.06em;
         color: #3C0612;
@@ -189,20 +219,20 @@ st.markdown(
         line-height: 1.1;
     }
     .newsprint-paper-sub {
-        font-size: 0.67rem;
+        font-size: 0.70rem;
         font-style: italic;
         color: #4A3B2C;
         margin-top: 2px;
     }
 
-    /* Print Newspaper Lead Story + 2-Column Below Fold (Reduced 15-20%) */
+    /* Print Newspaper Lead Story + 2-Column Below Fold */
     .paper-lead-story {
         border-bottom: 1.5px solid #1D120A;
-        padding-bottom: 7px;
-        margin-bottom: 7px;
+        padding-bottom: 9px;
+        margin-bottom: 9px;
     }
     .paper-kicker {
-        font-size: 0.58rem;
+        font-size: 0.60rem;
         font-weight: bold;
         letter-spacing: 0.04em;
         color: #7A1C24;
@@ -210,64 +240,47 @@ st.markdown(
     }
     .paper-lead-headline {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 0.90rem;
+        font-size: 0.95rem;
         font-weight: 700;
         color: #1D120A;
         margin: 0 0 2px 0;
-        line-height: 1.2;
+        line-height: 1.22;
     }
     .paper-byline {
-        font-size: 0.60rem;
+        font-size: 0.62rem;
         font-style: italic;
         color: #6B5846;
-        margin-bottom: 3px;
+        margin-bottom: 4px;
     }
     .paper-lead-copy {
-        font-size: 0.72rem;
-        line-height: 1.34;
+        font-size: 0.75rem;
+        line-height: 1.38;
         color: #2B1E12;
         margin: 0;
     }
     .paper-columns-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 11px;
+        gap: 12px;
         align-items: start;
     }
     .paper-col-story:first-child {
         border-right: 1px solid #C8BFA8;
-        padding-right: 9px;
+        padding-right: 10px;
     }
     .paper-col-headline {
         font-family: "Playfair Display", "Times New Roman", serif !important;
-        font-size: 0.77rem;
+        font-size: 0.81rem;
         font-weight: 700;
         color: #1D120A;
         margin: 0 0 2px 0;
-        line-height: 1.2;
+        line-height: 1.22;
     }
     .paper-col-copy {
-        font-size: 0.69rem;
-        line-height: 1.32;
+        font-size: 0.72rem;
+        line-height: 1.36;
         color: #33261A;
         margin: 0;
-    }
-
-    .newsprint-bottom-links {
-        border-top: 1.5px solid #1D120A;
-        margin-top: 8px;
-        padding-top: 6px;
-        text-align: center;
-        font-size: 0.70rem;
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 7px;
-    }
-    .newsprint-bottom-links a {
-        color: #3C0612 !important;
-        font-weight: bold;
-        text-decoration: underline;
     }
 
     /* ---------------------------------------------------------
