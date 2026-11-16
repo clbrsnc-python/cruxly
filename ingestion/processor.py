@@ -71,24 +71,37 @@ ASTROLOGY_PATTERNS = re.compile(
 CROSS_LANG_ENTITY_MAP: dict[str, str] = {
     # Cities, States & Countries
     "কলকাতা": "kolkata", "कोलकाता": "kolkata", "calcutta": "kolkata",
-    "পশ্চিমবঙ্গ": "bengal", "বাংলা": "bengal", "बंगाल": "bengal",
-    "দিল্লি": "delhi", "दिल्ली": "delhi",
+    "পশ্চিমবঙ্গ": "bengal", "বাংলা": "bengal", "बंगाल": "bengal", "west bengal": "bengal",
+    "দিল্লি": "delhi", "दिल्ली": "delhi", "new delhi": "delhi",
     "মুম্বই": "mumbai", "मुंबई": "mumbai",
-    "চেন্নাই": "chennai", "বেঙ্গালুরু": "bengaluru", "হায়দরাবাদ": "hyderabad",
+    "চেন্নাই": "chennai", "चेन्नई": "chennai",
+    "বেঙ্গালুরু": "bengaluru", "बेंगलुरु": "bengaluru", "bangalore": "bengaluru",
+    "হায়দরাবাদ": "hyderabad", "हैदराबाद": "hyderabad",
     "ভারত": "india", "भारत": "india",
-    "বাংলাদেশ": "bangladesh", "পাকিস্তান": "pakistan", "চীন": "china", "আমেরিকা": "usa",
+    "বাংলাদেশ": "bangladesh", "बांग्लादेश": "bangladesh",
+    "পাকিস্তান": "pakistan", "पाकिस्तान": "pakistan",
+    "চীন": "china", "चीन": "china",
+    "আমেরিকা": "usa", "মার্কিন": "usa", "अमेरिका": "usa", "united states": "usa",
+    "ইজরায়েল": "israel", "ইসরায়েল": "israel", "इजरायल": "israel",
+    "গাজা": "gaza", "गाजा": "gaza",
+    "রোহিঙ্গা": "rohingya", "রোহিঙ্গাদের": "rohingya", "रोहिंग्या": "rohingya",
+    "মায়ানমার": "myanmar", "মিয়ানমার": "myanmar", "म्यांमार": "myanmar",
     "যাদবপুর": "jadavpur", "সল্টলেক": "saltlake", "হাওড়া": "howrah", "শিলিগুড়ি": "siliguri",
     "দার্জিলিং": "darjeeling", "মালদা": "malda", "মুর্শিদাবাদ": "murshidabad", "বীরভূম": "birbhum",
     "নন্দীগ্রাম": "nandigram", "সন্দেশখালি": "sandeshkhali", "আরজি কর": "rgkar",
     # Institutions & Governance
-    "সুপ্রিম কোর্ট": "supremecourt", "सुप्रीम कोर्ट": "supremecourt",
-    "হাইকোর্ট": "highcourt", "हाईकोर्ट": "highcourt",
-    "নির্বাচন কমিশন": "electioncommission", "चुनाव आयोग": "electioncommission",
-    "সংসদ": "parliament", "লোকসভা": "loksabha", "বিধানসভা": "assembly",
+    "সুপ্রিম কোর্ট": "supremecourt", "सुप्रीम कोर्ट": "supremecourt", "supreme court": "supremecourt",
+    "হাইকোর্ট": "highcourt", "हाईकोर्ट": "highcourt", "high court": "highcourt",
+    "আন্তর্জাতিক আদালত": "icj", "icj": "icj",
+    "নির্বাচন কমিশন": "electioncommission", "चुनाव आयोग": "electioncommission", "election commission": "electioncommission",
+    "সংসদ": "parliament", "संसद": "parliament",
+    "লোকসভা": "loksabha", "लोकसभा": "loksabha",
+    "বিধানসভা": "assembly", "विधानसभा": "assembly",
     "নবান্ন": "nabanna", "রাজভবন": "rajbhavan",
-    "পুলিশ": "police", "সিবিআই": "cbi", "ইডি": "ed", "এনআইএ": "nia",
-    "এসআইআর": "sir", "ভোটার": "voter", "আধার": "aadhaar",
-    "রেল": "railway", "মেট্রো": "metro", "বিমান": "flight",
+    "পুলিশ": "police", "पुलिस": "police",
+    "সিবিআই": "cbi", "ইডি": "ed", "এনআইএ": "nia",
+    "এসআইআর": "sir", "ভোটার": "voter", "আধার": "aadhaar", "आधार": "aadhaar",
+    "রেল": "railway", "रेलवे": "railway", "মেট্রো": "metro", "বিমান": "flight",
     "আরবিআই": "rbi", "সেবি": "sebi", "ইসরো": "isro", "নাসা": "nasa",
     # Political Leaders & Parties
     "মোদী": "modi", "মোদি": "modi", "मोदी": "modi",
@@ -97,7 +110,7 @@ CROSS_LANG_ENTITY_MAP: dict[str, str] = {
     "অমিত শাহ": "amitshah", "রাহুল": "rahul", "ট্রাম্প": "trump",
     "তৃণমূল": "tmc", "বিজেপি": "bjp", "কংগ্রেস": "congress", "সিপিএম": "cpim",
     # Major Recurring Themes
-    "দূষণ": "pollution", "প্রদূষণ": "pollution", "প্রदूषण": "pollution",
+    "দূষণ": "pollution", "প্রদূষণ": "pollution", "प्रदूषण": "pollution",
     "ঘূর্ণিঝড়": "cyclone", "বৃষ্টি": "rain", "বন্যা": "flood", "ভূমিকম্প": "earthquake",
     "দুর্ঘটনা": "accident", "অগ্নিকাণ্ড": "fire", "বিস্ফোরণ": "blast",
     "গ্রেফতার": "arrest", "খুন": "murder", "ধর্ষণ": "rape",
@@ -148,6 +161,17 @@ def _clean_text(raw: str) -> str:
     return text
 
 
+def _normalize_publisher_key(source_name: str) -> str:
+    """Normalizes publisher names so regional sub-feeds of the same newspaper do not count as separate outlets."""
+    clean = re.sub(
+        r"\s*[-–—|:]\s*(kolkata|delhi|mumbai|national|bengal|editorial|opinion|live|states|cities).*$",
+        "",
+        (source_name or "").strip(),
+        flags=re.IGNORECASE,
+    )
+    return clean.strip().lower()
+
+
 def _parse_entry_datetime_ist(entry) -> datetime | None:
     """Parses RSS entry publication date into IST timezone-aware datetime."""
     if getattr(entry, "published_parsed", None):
@@ -170,7 +194,7 @@ def _parse_entry_datetime_ist(entry) -> datetime | None:
 
 def _resolve_cluster_published_at(cluster: list[dict], now_ist: datetime) -> str:
     """
-    Preserves the authentic source publication timestamp (e.g. Nov 15) when available
+    Preserves the authentic source publication timestamp when available
     in the cluster entries, clamped to <= now_ist.
     """
     valid_dts: list[datetime] = []
@@ -213,7 +237,6 @@ def _apply_universal_bengali_morphology(text: str) -> str:
     """
     Applies purely structural, algorithmic Bengali grammar & typography rules:
       1. Fixes Hindi '-varshiya' age calques across ALL Unicode hyphen/dash variants (\u2010-\u2015)
-         e.g., 'আট‑বছরীর' / 'আট–বছরীর' / 'আট-বছরীয়' / '৮–বছরী' -> 'আট বছর বয়সী' / '৮ বছর বয়সী'
       2. Moves Bengali case suffixes trapped outside closing quotation marks back inside
     """
     if not text:
@@ -327,6 +350,31 @@ def _has_bengali_script(text: str) -> bool:
     return bool(re.search(r"[\u0980-\u09FF]{4,}", text or ""))
 
 
+def _is_verbatim_copy(candidate: str, source_titles: list[str]) -> bool:
+    """Checks if a generated headline is an exact or near-verbatim copy of any source headline."""
+    cand_words = re.findall(r"[a-z0-9]+", (candidate or "").lower())
+    if not cand_words:
+        return True
+    cand_set = set(cand_words)
+    for src in source_titles:
+        src_words = re.findall(r"[a-z0-9]+", (src or "").lower())
+        if not src_words:
+            continue
+        if cand_words == src_words:
+            return True
+        overlap_ratio = len(cand_set & set(src_words)) / max(len(cand_set), len(src_words))
+        if overlap_ratio >= 0.85:
+            return True
+    return False
+
+
+def _build_non_verbatim_fallback_headline(primary: dict, genre: str, geo: str) -> str:
+    """Constructs a clean editorial briefing title without copying a newspaper's headline verbatim."""
+    acronyms, proper_nouns = _extract_named_entities([primary])
+    subject = proper_nouns[0] if proper_nouns else (acronyms[0] if acronyms else geo)
+    return f"{genre} Briefing: Key Developments Involving {subject}"
+
+
 def _get_existing_urls_and_headlines(supabase) -> tuple[set[str], set[str]]:
     """Fetches recently published article URLs and normalized headlines to prevent duplicates."""
     existing_urls: set[str] = set()
@@ -397,6 +445,7 @@ def fetch_rss_items(
                         {
                             "source_id": source["id"],
                             "source_name": source["name"],
+                            "publisher_key": _normalize_publisher_key(source["name"]),
                             "language": source["language"],
                             "geography": _normalize_geography(source.get("default_geography"), "National"),
                             "title": title,
@@ -413,28 +462,26 @@ def fetch_rss_items(
 
 def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list[dict]]:
     """
-    Groups matching stories across English, Bengali, and Hindi feeds using cross-language entity
-    canonicalization + Unicode tokenization so multi-newspaper reports merge into unified clusters.
+    Groups matching stories across distinct English, Bengali, and Hindi newspapers using
+    cross-language entity canonicalization, proper-noun matching, and publish-window proximity
+    so multi-newspaper reports merge into unified clusters.
     """
     clusters: list[list[dict]] = []
     stop_words = {
         "the", "and", "for", "with", "from", "that", "this", "into",
-        "over", "after", "amid", "says", "new", "india", "news", "will",
-        "credit", "card", "bank", "report", "state", "govt", "government",
-        "এবং", "করে", "হয়েছে", "থেকে", "জন্য", "নিয়ে", "বলেছেন", "রাজ্য", "খবর",
+        "over", "after", "amid", "says", "said", "new", "india", "news", "will",
+        "credit", "card", "bank", "report", "reports", "state", "govt", "government",
+        "more", "case", "court", "year", "years", "people", "during", "against",
+        "এবং", "করে", "হয়েছে", "থেকে", "জন্য", "নিয়ে", "বলেছেন", "রাজ্য", "খবর", "আরও",
     }
 
     def tokenize(text: str) -> set[str]:
         normalized = text.translate(BN_TO_ASCII_DIGITS).lower()
-        normalized = normalized.replace("supreme court", "supremecourt").replace("high court", "highcourt")
-        normalized = normalized.replace("election commission", "electioncommission").replace("amit shah", "amitshah")
-        normalized = normalized.replace("rg kar", "rgkar").replace("r.g. kar", "rgkar")
+        for phrase, canon in CROSS_LANG_ENTITY_MAP.items():
+            if phrase in normalized:
+                normalized = normalized.replace(phrase, f" {canon} ")
 
         canonical_tokens: set[str] = set()
-        for indic_phrase, canon in CROSS_LANG_ENTITY_MAP.items():
-            if indic_phrase in normalized:
-                canonical_tokens.add(canon)
-
         en_words = re.findall(r"[a-zA-Z]{3,}", normalized)
         indic_words = re.findall(r"[\u0980-\u09FF\u0900-\u097F]{2,}", normalized)
         numbers = re.findall(r"\b\d{2,}\b", normalized)
@@ -447,31 +494,48 @@ def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list
 
         return canonical_tokens
 
-    # Precompute token sets once per item for fast cross-language matching
-    item_tokens = [tokenize(f"{it['title']} {it.get('snippet', '')[:160]}") for it in items]
+    item_tokens = [tokenize(f"{it['title']} {it.get('snippet', '')[:220]}") for it in items]
 
     for idx, item in enumerate(items):
         tokens = item_tokens[idx]
+        item_pub_key = item.get("publisher_key") or _normalize_publisher_key(item["source_name"])
+        item_dt = item.get("published_dt")
         placed = False
-        for c_idx, cluster in enumerate(clusters):
-            existing_sources = {c["source_id"] for c in cluster}
-            if item["source_id"] in existing_sources:
+
+        for cluster in clusters:
+            existing_publishers = {
+                c.get("publisher_key") or _normalize_publisher_key(c["source_name"])
+                for c in cluster
+            }
+            # Only merge coverage from genuinely distinct newspapers
+            if item_pub_key in existing_publishers:
                 continue
-            # Compare against union of tokens across all items already in the cluster
+
+            # Ensure stories are within a 36-hour news-cycle window
+            cluster_dts = [c["published_dt"] for c in cluster if isinstance(c.get("published_dt"), datetime)]
+            if isinstance(item_dt, datetime) and cluster_dts:
+                if abs((item_dt - cluster_dts[0]).total_seconds()) > 36 * 3600:
+                    continue
+
             cluster_tokens: set[str] = set()
             for member in cluster:
                 cluster_tokens |= member["_tokens"]
+
             overlap = tokens & cluster_tokens
-            if len(overlap) >= 2:
+            union_size = max(1, len(tokens | cluster_tokens))
+            jaccard = len(overlap) / union_size
+
+            # Merge if at least 2 distinct entities/keywords overlap (or strong Jaccard similarity)
+            if len(overlap) >= 2 or (len(overlap) >= 1 and jaccard >= 0.18):
                 item["_tokens"] = tokens
                 cluster.append(item)
                 placed = True
                 break
+
         if not placed:
             item["_tokens"] = tokens
             clusters.append([item])
 
-    # Clean temporary _tokens key before returning
     for cluster in clusters:
         for member in cluster:
             member.pop("_tokens", None)
@@ -479,6 +543,7 @@ def cluster_items(items: list[dict], max_clusters: int | None = 20) -> list[list
     bn_clusters = [c for c in clusters if any(it["language"] == "bn" for it in c)]
     other_clusters = [c for c in clusters if not any(it["language"] == "bn" for it in c)]
 
+    # Prioritize multi-newspaper corroborated clusters first
     bn_clusters.sort(key=lambda c: len(c), reverse=True)
     other_clusters.sort(key=lambda c: len(c), reverse=True)
 
@@ -522,21 +587,22 @@ def _build_synthesis_prompt(cluster: list[dict], valid_genres: list[str]) -> str
         )
 
     return (
-        "You are a senior copy editor at a major Kolkata Bengali daily. Synthesize the following news notes "
+        "You are a senior copy editor at a major Kolkata broadsheet. Synthesize the following news notes "
         "into an original, objective, consolidated abridged report in BOTH English and standard Bengali (বাংলা লিপি).\n"
-        "CRITICAL EDITORIAL PRINCIPLES:\n"
-        f"1. {bn_guidance}\n"
-        f"2. {entity_lock}\n"
-        "3. Use West Bengal / Kolkata Bengali standard vocabulary and place orthography (Paschimbanga Bangla Akademi standard), never Hindi morphological calques (e.g., use 'বছর বয়সী', never 'বছরী'/'বছরীয়') and never Bangladeshi regional spellings.\n"
-        "4. Preserve exact subject-object grammatical agency (who performed the action vs. who was named or affected).\n"
-        "5. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"].\n"
-        "6. If 'geography' is \"State\", set 'state_name' to the Indian state name; otherwise set 'state_name' to null.\n"
-        f"7. 'primary_genre' MUST be strictly one of the currently approved genres: {genres_list}.\n"
-        "8. Set 'is_sensitive' to true ONLY if the story involves unverified communal violence, graphic abuse of minors, or sensitive public-order rumors requiring editorial review; otherwise false.\n"
-        "9. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences).\n\n"
+        "CRITICAL EDITORIAL & COPYRIGHT PRINCIPLES:\n"
+        "1. ORIGINAL HEADLINE REGENERATION (MANDATORY): Both 'headline_en' and 'headline_bn' MUST be freshly written, original editorial headlines synthesized from the underlying facts. NEVER copy, mirror, or lightly reword any source headline verbatim.\n"
+        f"2. {bn_guidance}\n"
+        f"3. {entity_lock}\n"
+        "4. Use West Bengal / Kolkata Bengali standard vocabulary and place orthography (Paschimbanga Bangla Akademi standard), never Hindi morphological calques (e.g., use 'বছর বয়সী', never 'বছরী'/'বছরীয়') and never Bangladeshi regional spellings.\n"
+        "5. Preserve exact subject-object grammatical agency (who performed the action vs. who was named or affected).\n"
+        "6. 'geography' MUST be strictly one of: [\"State\", \"National\", \"International\"].\n"
+        "7. If 'geography' is \"State\", set 'state_name' to the Indian state name; otherwise set 'state_name' to null.\n"
+        f"8. 'primary_genre' MUST be strictly one of the currently approved genres: {genres_list}.\n"
+        "9. Set 'is_sensitive' to true ONLY if the story involves unverified communal violence, graphic abuse of minors, or sensitive public-order rumors requiring editorial review; otherwise false.\n"
+        "10. Combine all facts and context into a single cohesive paragraph for 'in_brief_en' (3-5 sentences) and 'in_brief_bn' (3-5 sentences). Do NOT append '(Corroborated across...)' inside the text.\n\n"
         "Respond ONLY with a raw JSON object containing EXACTLY these keys:\n"
-        '- "headline_en": Concise, factual English headline (max 15 words).\n'
-        '- "headline_bn": Natural, idiomatic Bengali headline in Bengali Unicode script.\n'
+        '- "headline_en": Freshly synthesized, non-verbatim factual English broadsheet headline (max 15 words).\n'
+        '- "headline_bn": Freshly synthesized, non-verbatim idiomatic Bengali broadsheet headline in Bengali Unicode script.\n'
         '- "primary_genre": Exact string from the currently approved genres above.\n'
         '- "secondary_genres": Array of 0 to 2 additional genres from the approved genres.\n'
         '- "geography": Exact string from ["State", "National", "International"].\n'
@@ -567,8 +633,9 @@ def _automated_bengali_copy_edit(
         "Verify the Bengali draft against the Original Source Headlines and Detected Entities below, and fix ANY defect in:\n"
         f"1. Proper Noun & Acronym Integrity — Acronyms: {acronyms}, Proper Nouns: {proper_nouns}. "
         "Ensure every acronym is spelled phonetically right and NO proper noun/brand/place is mistranslated by literal word meaning.\n"
-        "2. West Bengal Press Standard — Use Kolkata newspaper orthography and vocabulary (not Bangladeshi orthography and not Hindi calques like 'বছরী'/'বছরীয়').\n"
-        "3. Grammatical Agency — Verify subject vs. object meaning matches the English source accurately.\n\n"
+        "2. Original Headline Check — Ensure 'headline_bn' is an original editorial headline and not a verbatim copy of any Bengali source title.\n"
+        "3. West Bengal Press Standard — Use Kolkata newspaper orthography and vocabulary (not Bangladeshi orthography and not Hindi calques like 'বছরী'/'বছরীয়').\n"
+        "4. Grammatical Agency — Verify subject vs. object meaning matches the English source accurately.\n\n"
         f"Original Source Headlines:\n{source_notes}\n\n"
         f"English Headline: {headline_en}\n"
         f"English Summary: {in_brief_en}\n"
@@ -606,9 +673,10 @@ def synthesize_cluster(
     groq_api_key: str | None = None,
     valid_genres: list[str] | None = None,
 ) -> tuple[dict, str | None]:
-    """Generates an original consolidated abridged summary in English and Bengali."""
+    """Generates an original consolidated abridged summary and non-verbatim headlines in English and Bengali."""
     active_genres = valid_genres or APPROVED_GENRES
     primary = cluster[0]
+    source_titles = [item["title"] for item in cluster]
     source_names = sorted({item["source_name"] for item in cluster})
     fallback_geo = _normalize_geography(primary.get("geography"), "National")
     prompt = _build_synthesis_prompt(cluster, active_genres)
@@ -624,9 +692,14 @@ def synthesize_cluster(
         if geo == "State" and not state_val:
             state_val = "West Bengal"
 
-        headline_en = (parsed.get("headline_en") or primary["title"]).strip()
+        raw_h_en = (parsed.get("headline_en") or "").strip()
+        if not raw_h_en or _is_verbatim_copy(raw_h_en, source_titles):
+            headline_en = _build_non_verbatim_fallback_headline(primary, genre, geo)
+        else:
+            headline_en = raw_h_en
+
         headline_bn = (parsed.get("headline_bn") or "").strip()
-        in_brief_en = (parsed.get("in_brief_en") or parsed.get("what_happened_en") or primary["snippet"] or primary["title"]).strip()
+        in_brief_en = (parsed.get("in_brief_en") or parsed.get("what_happened_en") or primary["snippet"] or headline_en).strip()
         in_brief_bn = (parsed.get("in_brief_bn") or parsed.get("what_happened_bn") or "").strip()
 
         if g_client is not None and _has_bengali_script(headline_bn):
@@ -642,10 +715,10 @@ def synthesize_cluster(
         headline_bn = _apply_universal_bengali_morphology(headline_bn)
         in_brief_bn = _apply_universal_bengali_morphology(in_brief_bn)
 
-        if not _has_bengali_script(headline_bn):
-            headline_bn = primary["title"] if primary["language"] == "bn" else f"সংবাদ শিরোনাম ({', '.join(source_names)})"
+        if not _has_bengali_script(headline_bn) or headline_bn.strip() in source_titles:
+            headline_bn = f"{genre} সংবাদ সংক্ষেপ ({', '.join(source_names)})"
         if not _has_bengali_script(in_brief_bn):
-            in_brief_bn = (primary["snippet"] or primary["title"]) if primary["language"] == "bn" else f"সূত্র: {', '.join(source_names)} — {headline_en}"
+            in_brief_bn = f"সূত্র: {', '.join(source_names)} — {headline_en}"
 
         story_status = _detect_sensitive_status(
             headline_en,
@@ -671,7 +744,7 @@ def synthesize_cluster(
             },
         }
 
-    # 1. Try Groq 120B (primary) then 20B (backup) with max_retries=1 to prevent 25-min rate-limit stalls
+    # 1. Try Groq 120B (primary) then 20B (backup)
     if groq_api_key and Groq is not None:
         g_client = Groq(api_key=groq_api_key.strip(), max_retries=1)
         for model_id in (PRIMARY_MODEL, BACKUP_MODEL):
@@ -682,14 +755,14 @@ def synthesize_cluster(
                         {
                             "role": "system",
                             "content": (
-                                "You are a senior copy editor at a Kolkata Bengali newspaper following Paschimbanga Bangla Akademi standards. "
-                                "Output valid JSON only. Transliterate proper nouns and acronyms accurately; never translate them by literal word meaning."
+                                "You are a senior copy editor at a Kolkata broadsheet following Paschimbanga Bangla Akademi standards. "
+                                "Output valid JSON only. Always generate original, non-verbatim editorial headlines; never copy source headlines."
                             ),
                         },
                         {"role": "user", "content": prompt},
                     ],
                     reasoning_effort="low",
-                    temperature=0.2,
+                    temperature=0.25,
                     max_tokens=4096,
                 )
                 content = chat_resp.choices[0].message.content or ""
@@ -712,22 +785,24 @@ def synthesize_cluster(
         except Exception as gem_exc:
             llm_error = f"Gemini API error: {gem_exc}"
 
-    # 3. Fallback when LLM is unavailable or errored
-    combined_brief = primary["snippet"] or primary["title"]
+    # 3. Non-verbatim fallback when LLM is unavailable or errored
     safe_geo = fallback_geo if fallback_geo in ALLOWED_GEOGRAPHIES else "National"
-    bn_fallback_title = primary["title"] if primary["language"] == "bn" else f"সংবাদ শিরোনাম ({', '.join(source_names)})"
-    bn_fallback_brief = combined_brief if primary["language"] == "bn" else f"সূত্র: {', '.join(source_names)} — {primary['title']}"
+    safe_genre = _normalize_genre(primary["title"], active_genres)
+    non_verbatim_en = _build_non_verbatim_fallback_headline(primary, safe_genre, safe_geo)
+    combined_brief = primary["snippet"] or non_verbatim_en
+    bn_fallback_title = f"{safe_genre} সংবাদ সংক্ষেপ ({', '.join(source_names)})"
+    bn_fallback_brief = f"সূত্র: {', '.join(source_names)} — {non_verbatim_en}"
     return (
         {
-            "headline_en": primary["title"],
+            "headline_en": non_verbatim_en,
             "headline_bn": bn_fallback_title,
-            "primary_genre": _normalize_genre(primary["title"], active_genres),
+            "primary_genre": safe_genre,
             "secondary_genres": [],
             "geography": safe_geo,
             "state_name": "West Bengal" if safe_geo == "State" else None,
-            "status": _detect_sensitive_status(primary["title"], combined_brief, False),
+            "status": _detect_sensitive_status(non_verbatim_en, combined_brief, False),
             "summary_en": {
-                "in_brief": f"{combined_brief} (Corroborated across {', '.join(source_names)}.)",
+                "in_brief": combined_brief,
                 "sources": source_names,
             },
             "summary_bn": {
@@ -794,6 +869,7 @@ def run_ingestion_cycle(
 
     published_count = 0
     bn_published = 0
+    multi_source_count = 0
     flagged_count = 0
     skipped_dups = 0
     errors: list[str] = []
@@ -845,6 +921,8 @@ def run_ingestion_cycle(
             if insert_res.data:
                 story_id = insert_res.data[0]["id"]
                 existing_headlines.add(norm_synth)
+                if len(cluster) >= 2:
+                    multi_source_count += 1
                 if story_status == "flagged_review":
                     flagged_count += 1
                 if any(it["language"] == "bn" for it in cluster):
@@ -883,6 +961,6 @@ def run_ingestion_cycle(
         "message": (
             f"[{mode_label}] Fetched {fetched_count} RSS items ({bn_fetched} Bengali, excluded {astrology_skipped} astrology items), "
             f"skipped {skipped_dups} duplicates, and published {published_count} consolidated briefings "
-            f"({bn_published} citing Bengali dailies{flag_note}).{diag_suffix}"
+            f"({multi_source_count} multi-newspaper corroborated, {bn_published} citing Bengali dailies{flag_note}).{diag_suffix}"
         ),
     }
