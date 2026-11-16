@@ -9,9 +9,17 @@ on:
   workflow_dispatch:
     inputs:
       edition_slot:
-        description: "Edition slot to run manually (morning, evening, or live)"
+        description: "Edition slot (morning, evening, or live)"
         required: false
         default: "morning"
+      since_date:
+        description: "Optional start date YYYY-MM-DD for exhaustive baseline backfill (e.g. 2026-11-15)"
+        required: false
+        default: ""
+      exhaustive_mode:
+        description: "Process all unique clusters without cap (true/false)"
+        required: false
+        default: "false"
 
 jobs:
   ingest-and-publish:
@@ -24,6 +32,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install Dependencies
         run: |
@@ -37,4 +46,6 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EDITION_SLOT: ${{ github.event.inputs.edition_slot }}
+          SINCE_DATE: ${{ github.event.inputs.since_date }}
+          EXHAUSTIVE_MODE: ${{ github.event.inputs.exhaustive_mode }}
         run: python scripts/scheduled_ingest.py
